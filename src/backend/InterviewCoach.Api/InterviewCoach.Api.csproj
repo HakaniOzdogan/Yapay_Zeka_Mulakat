@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="8.0.0" />
+    <PackageReference Include="Microsoft.AspNetCore.Cors" Version="2.2.0" />
+    <PackageReference Include="Swashbuckle.AspNetCore" Version="6.4.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\InterviewCoach.Domain\InterviewCoach.Domain.csproj" />
+    <ProjectReference Include="..\InterviewCoach.Application\InterviewCoach.Application.csproj" />
+    <ProjectReference Include="..\InterviewCoach.Infrastructure\InterviewCoach.Infrastructure.csproj" />
+  </ItemGroup>
+
+</Project>

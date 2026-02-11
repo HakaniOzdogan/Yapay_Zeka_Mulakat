@@ -1,0 +1,30 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.5.2.0
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "InterviewAI", "InterviewAI\InterviewAI.csproj", "{24D5D8BB-505B-4590-8F2B-F60AE79101F7}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "InterviewAI.Frontend", "InterviewAI.Frontend\InterviewAI.Frontend.csproj", "{BD5BBCF0-3C0E-EBD9-C98F-EDF27102060E}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{24D5D8BB-505B-4590-8F2B-F60AE79101F7}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{24D5D8BB-505B-4590-8F2B-F60AE79101F7}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{24D5D8BB-505B-4590-8F2B-F60AE79101F7}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{24D5D8BB-505B-4590-8F2B-F60AE79101F7}.Release|Any CPU.Build.0 = Release|Any CPU
+		{BD5BBCF0-3C0E-EBD9-C98F-EDF27102060E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{BD5BBCF0-3C0E-EBD9-C98F-EDF27102060E}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{BD5BBCF0-3C0E-EBD9-C98F-EDF27102060E}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{BD5BBCF0-3C0E-EBD9-C98F-EDF27102060E}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {9537B47B-244A-44DA-B1C3-287418C11571}
+	EndGlobalSection
+EndGlobal

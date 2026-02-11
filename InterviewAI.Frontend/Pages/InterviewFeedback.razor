@@ -1,0 +1,79 @@
+@page "/interview-feedback/{InterviewId:int}"
+@using InterviewAI.Frontend.Services
+@inject NavigationManager Navigation
+@inject ApiService ApiService
+
+<PageTitle>Interview Feedback</PageTitle>
+
+<div class="container mt-5">
+    @if (interview == null)
+    {
+        <p>Loading...</p>
+    }
+    else
+    {
+        <div class="card mb-4">
+            <div class="card-body">
+                <h2>Interview Results</h2>
+                <h3 class="text-primary">Overall Score: @interview.OverallScore%</h3>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-body">
+                        <h5 class="card-title">Statistics</h5>
+                        <p><strong>Duration:</strong> @Math.Round(interview.Duration, 2) minutes</p>
+                        <p><strong>Status:</strong> @interview.Status</p>
+                        <p><strong>Total Questions:</strong> @interview.TotalQuestions</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-body">
+                        <h5 class="card-title">Interview Type</h5>
+                        <p><strong>Position:</strong> @interview.JobPosition</p>
+                        <p><strong>Started:</strong> @interview.StartedAt.ToString("g")</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="mt-4">
+            <button class="btn btn-primary" @onclick="TryAnother">Try Another</button>
+            <button class="btn btn-secondary" @onclick="GoDashboard">Dashboard</button>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter]
+    public int InterviewId { get; set; }
+
+    private InterviewDto interview;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            interview = await ApiService.GetInterviewAsync(InterviewId);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error: {ex.Message}");
+        }
+    }
+
+    private void TryAnother()
+    {
+        Navigation.NavigateTo("/interview");
+    }
+
+    private void GoDashboard()
+    {
+        Navigation.NavigateTo("/dashboard");
+    }
+}

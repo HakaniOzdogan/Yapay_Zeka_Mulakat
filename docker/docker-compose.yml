@@ -1,0 +1,60 @@
+services:
+  postgres:
+    image: postgres:15
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: coach
+      POSTGRES_PASSWORD: coachpass
+      POSTGRES_DB: interviewcoach
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U coach -d interviewcoach"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - appnet
+
+  backend:
+    build:
+      context: ../src/backend
+      dockerfile: Dockerfile
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ConnectionStrings__Default=Host=postgres;Port=5432;Database=interviewcoach;Username=coach;Password=coachpass
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "5000:8080"
+    networks:
+      - appnet
+
+  frontend:
+    build:
+      context: ../src/frontend
+      dockerfile: Dockerfile
+    ports:
+      - "5173:5173"
+    networks:
+      - appnet
+
+  speech-service:
+    build:
+      context: ../services/speech-service
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    networks:
+      - appnet
+
+volumes:
+  pgdata:
+
+networks:
+  appnet:
+    driver: bridge
+

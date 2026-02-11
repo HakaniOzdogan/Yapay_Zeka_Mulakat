@@ -1,0 +1,228 @@
+@page "/interview-session/{InterviewId:int}"
+@using InterviewAI.Frontend.Services
+@using System.Diagnostics
+@inject NavigationManager Navigation
+@inject ApiService ApiService
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+<PageTitle>Interview Session</PageTitle>
+
+<div class="container mt-5">
+    @if (interview == null)
+    {
+        <p>Loading...</p>
+    }
+    else if (isCompleted)
+    {
+        <div class="alert alert-success">
+            <h2>Complete</h2>
+            <p>Score: @interview.OverallScore%</p>
+            <button class="btn btn-secondary" @onclick="GoDashboard">Dashboard</button>
+        </div>
+    }
+    else
+    {
+        <div class="row g-4">
+            <div class="col-lg-8">
+                <h2>Soru @questionNumber</h2>
+                <p class="lead">@currentQuestion</p>
+                <p>Time: @formattedTime</p>
+
+                @if (!string.IsNullOrWhiteSpace(coachingTip))
+                {
+                    <div class="alert alert-info">@coachingTip</div>
+                }
+
+                <form @onsubmit="SubmitAnswer" @onsubmit:preventDefault="true">
+                    <textarea @bind="userAnswer" rows="6" class="form-control mb-3" placeholder="Your answer..."></textarea>
+                    <button type="submit" class="btn btn-success" disabled="@isSubmitting">
+                        @(isSubmitting ? "Processing..." : "Submit")
+                    </button>
+                </form>
+            </div>
+
+            <div class="col-lg-4">
+                <video id="interview-preview" class="w-100 rounded border" autoplay muted playsinline></video>
+                <div class="card mt-3">
+                    <div class="card-body">
+                        <h6 class="mb-3">MediaPipe Signals</h6>
+                        <div>Eye Contact: @currentSignals.EyeContactScore.ToString("0")</div>
+                        <div>Posture: @currentSignals.PostureScore.ToString("0")</div>
+                        <div>Confidence: @currentSignals.ConfidenceScore.ToString("0")</div>
+                        <div>Attention: @currentSignals.AttentionScore.ToString("0")</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter]
+    public int InterviewId { get; set; }
+
+    private InterviewDto? interview;
+    private string currentQuestion = "Loading question...";
+    private string userAnswer = "";
+    private int questionNumber = 0;
+    private bool isCompleted = false;
+    private bool isSubmitting = false;
+    private string formattedTime = "00:00";
+    private string coachingTip = "";
+    private Stopwatch? stopwatch;
+    private bool trackerInitialized = false;
+    private DateTime questionStartedAt = DateTime.UtcNow;
+    private readonly CancellationTokenSource pollingCancellation = new();
+    private MediapipeSignalsDto currentSignals = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            interview = await ApiService.GetInterviewAsync(InterviewId);
+            stopwatch = Stopwatch.StartNew();
+            _ = UpdateTimer();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error: {ex.Message}");
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender || interview == null)
+        {
+            return;
+        }
+
+        try
+        {
+            await JS.InvokeVoidAsync("interviewMediapipeTracker.init", "interview-preview");
+            trackerInitialized = true;
+            _ = PollMediapipeSignalsAsync(pollingCancellation.Token);
+        }
+        catch (Exception ex)
+        {
+            coachingTip = $"MediaPipe baslatilamadi: {ex.Message}";
+        }
+
+        await RequestNextTurnAsync(string.Empty);
+        StateHasChanged();
+    }
+
+    private async Task SubmitAnswer()
+    {
+        if (interview == null || isSubmitting || string.IsNullOrWhiteSpace(userAnswer))
+        {
+            return;
+        }
+
+        isSubmitting = true;
+        try
+        {
+            await RequestNextTurnAsync(userAnswer);
+            userAnswer = string.Empty;
+        }
+        finally
+        {
+            isSubmitting = false;
+        }
+    }
+
+    private async Task RequestNextTurnAsync(string answer)
+    {
+        if (interview == null)
+        {
+            return;
+        }
+
+        var turn = await ApiService.GetNextBotTurnAsync(InterviewId, new BotTurnRequestDto
+        {
+            UserAnswer = answer,
+            AnswerDurationSeconds = Math.Max((DateTime.UtcNow - questionStartedAt).TotalSeconds, 0),
+            Mediapipe = currentSignals
+        });
+
+        coachingTip = turn.CoachingTip;
+
+        if (turn.IsCompleted)
+        {
+            isCompleted = true;
+            if (stopwatch is not null)
+            {
+                stopwatch.Stop();
+                interview.Duration = stopwatch.Elapsed.TotalMinutes;
+            }
+
+            interview.Status = "Completed";
+            interview.OverallScore = turn.OverallScore ?? interview.OverallScore;
+            await ApiService.UpdateInterviewAsync(interview);
+            return;
+        }
+
+        questionNumber = turn.QuestionNumber;
+        currentQuestion = turn.Question;
+        questionStartedAt = DateTime.UtcNow;
+    }
+
+    private async Task UpdateTimer()
+    {
+        while (!isCompleted && stopwatch is { IsRunning: true })
+        {
+            formattedTime = $"{stopwatch.Elapsed.Minutes:D2}:{stopwatch.Elapsed.Seconds:D2}";
+            await InvokeAsync(StateHasChanged);
+            await Task.Delay(1000);
+        }
+    }
+
+    private async Task PollMediapipeSignalsAsync(CancellationToken cancellationToken)
+    {
+        while (!cancellationToken.IsCancellationRequested && !isCompleted && trackerInitialized)
+        {
+            try
+            {
+                var signals = await JS.InvokeAsync<MediapipeSignalsDto>("interviewMediapipeTracker.getSnapshot");
+                if (signals != null)
+                {
+                    currentSignals = signals;
+                    await InvokeAsync(StateHasChanged);
+                }
+            }
+            catch
+            {
+                trackerInitialized = false;
+                break;
+            }
+
+            await Task.Delay(1500, cancellationToken);
+        }
+    }
+
+    private void GoDashboard()
+    {
+        Navigation.NavigateTo("/dashboard");
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            pollingCancellation.Cancel();
+            if (trackerInitialized)
+            {
+                await JS.InvokeVoidAsync("interviewMediapipeTracker.stop");
+            }
+        }
+        catch
+        {
+            // ignore dispose errors
+        }
+        finally
+        {
+            pollingCancellation.Dispose();
+            stopwatch?.Stop();
+        }
+    }
+}

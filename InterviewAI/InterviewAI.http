@@ -1,0 +1,6 @@
+@InterviewAI_HostAddress = http://localhost:5042
+
+GET {{InterviewAI_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

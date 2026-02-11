@@ -1,0 +1,59 @@
+@page "/dashboard"
+@using InterviewAI.Frontend.Services
+@inject NavigationManager Navigation
+@inject ApiService ApiService
+
+<PageTitle>Dashboard</PageTitle>
+
+<div class="container mt-5">
+    <h1>Dashboard</h1>
+    <p><button class="btn btn-primary" @onclick="GoInterview">New Interview</button></p>
+    
+    @if (interviews.Count == 0)
+    {
+        <p>No interviews yet.</p>
+    }
+    else
+    {
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>Position</th>
+                    <th>Date</th>
+                    <th>Score</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var interview in interviews)
+                {
+                    <tr>
+                        <td>@interview.JobPosition</td>
+                        <td>@interview.StartedAt.ToShortDateString()</td>
+                        <td>@interview.OverallScore</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+</div>
+
+@code {
+    private List<InterviewDto> interviews = new();
+
+    private void GoInterview()
+    {
+        Navigation.NavigateTo("/interview");
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            interviews = await ApiService.GetInterviewsAsync();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error: {ex.Message}");
+        }
+    }
+}

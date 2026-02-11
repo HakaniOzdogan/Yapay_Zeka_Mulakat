@@ -1,0 +1,12 @@
+root = true
+
+[*.{cs,fs,vb}]
+indent_style = space
+indent_size = 4
+charset = utf-8
+end_of_line = crlf
+
+[*.{ts,tsx,js,jsx,css,scss,html,md}]
+indent_style = space
+indent_size = 2
+end_of_line = lf

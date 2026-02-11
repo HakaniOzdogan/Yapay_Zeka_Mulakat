@@ -1,0 +1,19 @@
+﻿@page "/"
+@inject NavigationManager Navigation
+
+<PageTitle>InterviewAI</PageTitle>
+
+<div class="container mt-5">
+    <div class="text-center">
+        <h1>InterviewAI</h1>
+        <p class="lead">AI-Powered Interview Practice</p>
+        <button class="btn btn-primary btn-lg" @onclick="GoDashboard">Start</button>
+    </div>
+</div>
+
+@code {
+    private void GoDashboard()
+    {
+        Navigation.NavigateTo("/dashboard");
+    }
+}
