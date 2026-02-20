@@ -12,7 +12,7 @@ function Home() {
 
   const roles = ['Software Engineer', 'Product Manager', 'Data Scientist', 'UX Designer']
   const languages = [
-    { code: 'tr', label: 'Türkçe' },
+    { code: 'tr', label: 'Turkce' },
     { code: 'en', label: 'English' }
   ]
 
@@ -37,13 +37,13 @@ function Home() {
     <div className="page home-page">
       <div className="container">
         <h1>Interview Coach</h1>
-        <p className="subtitle">Practice interviews with real-time AI coaching</p>
+        <p className="subtitle">Professional interview simulation with live AI insights</p>
 
         <div className="form">
           <div className="form-group">
             <label>Select Role</label>
             <select value={selectedRole} onChange={(e) => setSelectedRole(e.target.value)}>
-              {roles.map(role => (
+              {roles.map((role) => (
                 <option key={role} value={role}>{role}</option>
               ))}
             </select>
@@ -52,7 +52,7 @@ function Home() {
           <div className="form-group">
             <label>Select Language</label>
             <select value={selectedLanguage} onChange={(e) => setSelectedLanguage(e.target.value)}>
-              {languages.map(lang => (
+              {languages.map((lang) => (
                 <option key={lang.code} value={lang.code}>{lang.label}</option>
               ))}
             </select>
@@ -77,7 +77,7 @@ function Home() {
                   checked={selectedMode === 'offline'}
                   onChange={(e) => setSelectedMode(e.target.value as 'realtime' | 'offline')}
                 />
-                Offline (Upload & Analyze)
+                Offline (Upload and Analyze)
               </label>
             </div>
           </div>

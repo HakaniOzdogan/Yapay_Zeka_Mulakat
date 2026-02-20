@@ -3,6 +3,31 @@ import axios from 'axios'
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api'
 const SPEECH_SERVICE_URL = import.meta.env.VITE_SPEECH_URL || 'http://localhost:8000'
 
+export interface LiveAnalysisRequest {
+  sessionId: string
+  windowSec: number
+  role: string
+  questionPrompt: string
+  videoMetrics: {
+    eyeContactAvg: number
+    headStabilityAvg: number
+    postureAvg: number
+    fidgetAvg: number
+    eyeOpennessAvg: number
+    blinkCountWindow: number
+    emotionDistribution: Record<string, number>
+  }
+}
+
+export interface LiveAnalysisResponse {
+  summary: string
+  risks: string[]
+  suggestions: string[]
+  confidence: number
+  model: string
+  timestamp: string
+}
+
 class ApiService {
   // Session endpoints
   async createSession(role: string, language: string) {
@@ -16,6 +41,11 @@ class ApiService {
   async getSession(sessionId: string) {
     const response = await axios.get(`${API_BASE_URL}/sessions/${sessionId}`)
     return response.data
+  }
+
+  async getRecentSessions(limit: number = 30) {
+    const response = await axios.get(`${API_BASE_URL}/sessions?limit=${limit}`)
+    return response.data || []
   }
 
   // Question endpoints
@@ -88,6 +118,11 @@ class ApiService {
     } catch {
       return {}
     }
+  }
+
+  async analyzeLiveWindow(payload: LiveAnalysisRequest): Promise<LiveAnalysisResponse> {
+    const response = await axios.post(`${API_BASE_URL}/analysis/live-window`, payload, { timeout: 15000 })
+    return response.data
   }
 }
 

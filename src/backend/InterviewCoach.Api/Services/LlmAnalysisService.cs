@@ -1,0 +1,264 @@
+using System.Text;
+using System.Text.Json;
+
+namespace InterviewCoach.Api.Services;
+
+public interface ILlmAnalysisService
+{
+    Task<LiveAnalysisResult> AnalyzeLiveWindowAsync(LiveAnalysisInput input, CancellationToken cancellationToken = default);
+}
+
+public class OllamaLlmAnalysisService : ILlmAnalysisService
+{
+    private readonly HttpClient _httpClient;
+    private readonly ILogger<OllamaLlmAnalysisService> _logger;
+    private readonly LlmOptions _options;
+
+    public OllamaLlmAnalysisService(
+        HttpClient httpClient,
+        ILogger<OllamaLlmAnalysisService> logger,
+        IConfiguration configuration)
+    {
+        _httpClient = httpClient;
+        _logger = logger;
+        _options = configuration.GetSection("Llm").Get<LlmOptions>() ?? new LlmOptions();
+    }
+
+    public async Task<LiveAnalysisResult> AnalyzeLiveWindowAsync(LiveAnalysisInput input, CancellationToken cancellationToken = default)
+    {
+        var payload = BuildOllamaPayload(input);
+        var requestBody = JsonSerializer.Serialize(payload);
+        using var content = new StringContent(requestBody, Encoding.UTF8, "application/json");
+
+        using var response = await _httpClient.PostAsync($"{_options.BaseUrl.TrimEnd('/')}/api/chat", content, cancellationToken);
+        var body = await response.Content.ReadAsStringAsync(cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            _logger.LogWarning("Ollama call failed: {StatusCode} {Body}", (int)response.StatusCode, body);
+            return LiveAnalysisResult.Fallback("LLM servisinden yanit alinamadi.");
+        }
+
+        try
+        {
+            var raw = JsonSerializer.Deserialize<OllamaChatResponse>(body, new JsonSerializerOptions
+            {
+                PropertyNameCaseInsensitive = true
+            });
+            var jsonText = raw?.Message?.Content;
+            if (string.IsNullOrWhiteSpace(jsonText))
+            {
+                return LiveAnalysisResult.Fallback("LLM yaniti bos geldi.");
+            }
+
+            var parsed = ParseModelResult(jsonText);
+
+            if (parsed == null)
+            {
+                return LiveAnalysisResult.Fallback("LLM yaniti islenemedi.");
+            }
+
+            parsed.Model ??= _options.Model;
+            parsed.Timestamp = DateTime.UtcNow;
+            parsed.Normalize();
+            return parsed;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to parse Ollama response.");
+            return LiveAnalysisResult.Fallback("LLM yaniti parse edilemedi.");
+        }
+    }
+
+    private object BuildOllamaPayload(LiveAnalysisInput input)
+    {
+        var systemPrompt = """
+You are an interview coach assistant.
+Always respond in Turkish.
+Return strict JSON object with keys:
+summary (string),
+risks (array of short strings, max 3),
+suggestions (array of short actionable strings, max 3),
+confidence (number between 0 and 1).
+Do not include markdown.
+""";
+
+        var userPrompt = JsonSerializer.Serialize(new
+        {
+            task = "Canli mulakat penceresi icin kisa davranis analizi yap.",
+            windowSec = input.WindowSec,
+            role = input.Role,
+            questionPrompt = input.QuestionPrompt,
+            metrics = input
+        });
+
+        return new
+        {
+            model = _options.Model,
+            stream = false,
+            format = new
+            {
+                type = "object",
+                properties = new
+                {
+                    summary = new { type = "string" },
+                    risks = new { type = "array", items = new { type = "string" } },
+                    suggestions = new { type = "array", items = new { type = "string" } },
+                    confidence = new { type = "number" }
+                },
+                required = new[] { "summary", "risks", "suggestions", "confidence" }
+            },
+            options = new { temperature = _options.Temperature },
+            messages = new object[]
+            {
+                new { role = "system", content = systemPrompt },
+                new { role = "user", content = userPrompt }
+            }
+        };
+    }
+
+    private LiveAnalysisResult? ParseModelResult(string jsonText)
+    {
+        try
+        {
+            var strict = JsonSerializer.Deserialize<LiveAnalysisResult>(jsonText, new JsonSerializerOptions
+            {
+                PropertyNameCaseInsensitive = true
+            });
+            if (strict != null && !string.IsNullOrWhiteSpace(strict.Summary))
+            {
+                return strict;
+            }
+        }
+        catch
+        {
+            // Continue with tolerant parser.
+        }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(jsonText);
+            var root = doc.RootElement;
+            if (root.ValueKind != JsonValueKind.Object) return null;
+
+            var summary = GetStringByHints(root, "summary", "ozet");
+            var risks = GetArrayByHints(root, "risk");
+            var suggestions = GetArrayByHints(root, "suggest", "oner");
+            var confidence = GetNumberByHints(root, "conf", "guven");
+
+            return new LiveAnalysisResult
+            {
+                Summary = summary ?? "Canli analiz olusturuldu.",
+                Risks = risks,
+                Suggestions = suggestions,
+                Confidence = confidence ?? 0.6f
+            };
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static string? GetStringByHints(JsonElement root, params string[] hints)
+    {
+        foreach (var prop in root.EnumerateObject())
+        {
+            var name = prop.Name.ToLowerInvariant();
+            if (!hints.Any(h => name.Contains(h))) continue;
+            if (prop.Value.ValueKind == JsonValueKind.String)
+                return prop.Value.GetString();
+        }
+        return null;
+    }
+
+    private static List<string> GetArrayByHints(JsonElement root, params string[] hints)
+    {
+        foreach (var prop in root.EnumerateObject())
+        {
+            var name = prop.Name.ToLowerInvariant();
+            if (!hints.Any(h => name.Contains(h))) continue;
+            if (prop.Value.ValueKind != JsonValueKind.Array) continue;
+            return prop.Value.EnumerateArray()
+                .Where(x => x.ValueKind == JsonValueKind.String)
+                .Select(x => x.GetString() ?? string.Empty)
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .ToList();
+        }
+        return [];
+    }
+
+    private static float? GetNumberByHints(JsonElement root, params string[] hints)
+    {
+        foreach (var prop in root.EnumerateObject())
+        {
+            var name = prop.Name.ToLowerInvariant();
+            if (!hints.Any(h => name.Contains(h))) continue;
+            if (prop.Value.ValueKind == JsonValueKind.Number && prop.Value.TryGetSingle(out var num))
+                return num;
+        }
+        return null;
+    }
+}
+
+public class LlmOptions
+{
+    public string BaseUrl { get; set; } = "http://localhost:11434";
+    public string Model { get; set; } = "qwen2.5:7b-instruct";
+    public float Temperature { get; set; } = 0.2f;
+}
+
+public class LiveAnalysisInput
+{
+    public string SessionId { get; set; } = string.Empty;
+    public int WindowSec { get; set; } = 15;
+    public string Role { get; set; } = string.Empty;
+    public string QuestionPrompt { get; set; } = string.Empty;
+    public float EyeContactAvg { get; set; }
+    public float HeadStabilityAvg { get; set; }
+    public float PostureAvg { get; set; }
+    public float FidgetAvg { get; set; }
+    public float EyeOpennessAvg { get; set; }
+    public int BlinkCountWindow { get; set; }
+    public Dictionary<string, float> EmotionDistribution { get; set; } = [];
+}
+
+public class LiveAnalysisResult
+{
+    public string Summary { get; set; } = string.Empty;
+    public List<string> Risks { get; set; } = [];
+    public List<string> Suggestions { get; set; } = [];
+    public float Confidence { get; set; }
+    public string? Model { get; set; }
+    public DateTime Timestamp { get; set; } = DateTime.UtcNow;
+
+    public void Normalize()
+    {
+        Summary = string.IsNullOrWhiteSpace(Summary) ? "Canli analiz hazir degil." : Summary.Trim();
+        Risks = Risks.Where(x => !string.IsNullOrWhiteSpace(x)).Select(x => x.Trim()).Take(3).ToList();
+        Suggestions = Suggestions.Where(x => !string.IsNullOrWhiteSpace(x)).Select(x => x.Trim()).Take(3).ToList();
+        Confidence = Math.Clamp(Confidence, 0f, 1f);
+    }
+
+    public static LiveAnalysisResult Fallback(string summary)
+    {
+        return new LiveAnalysisResult
+        {
+            Summary = summary,
+            Risks = [],
+            Suggestions = [],
+            Confidence = 0.1f,
+            Model = "fallback",
+            Timestamp = DateTime.UtcNow
+        };
+    }
+}
+
+file class OllamaChatResponse
+{
+    public OllamaMessage? Message { get; set; }
+}
+
+file class OllamaMessage
+{
+    public string? Content { get; set; }
+}

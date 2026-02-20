@@ -36,6 +36,7 @@ builder.Services.Configure<ApplicationOptions>(
 
 // Register Services
 builder.Services.AddScoped<IScoringService, ScoringService>();
+builder.Services.AddHttpClient<ILlmAnalysisService, OllamaLlmAnalysisService>();
 
 // Register DbContext
 var connectionString = builder.Configuration.GetConnectionString("Default");

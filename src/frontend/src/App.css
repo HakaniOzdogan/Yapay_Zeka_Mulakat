@@ -2,3 +2,17 @@
   width: 100%;
   height: 100%;
 }
+
+.app {
+  padding-top: 78px;
+}
+
+@media print {
+  .app {
+    padding-top: 0;
+  }
+
+  .top-nav {
+    display: none !important;
+  }
+}

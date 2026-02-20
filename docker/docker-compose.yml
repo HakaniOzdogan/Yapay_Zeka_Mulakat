@@ -1,4 +1,14 @@
 services:
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    networks:
+      - appnet
+
   postgres:
     image: postgres:15
     restart: unless-stopped
@@ -25,9 +35,14 @@ services:
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
       - ConnectionStrings__Default=Host=postgres;Port=5432;Database=interviewcoach;Username=coach;Password=coachpass
+      - Llm__BaseUrl=http://ollama:11434
+      - Llm__Model=qwen2.5:7b-instruct
+      - Llm__Temperature=0.2
     depends_on:
       postgres:
         condition: service_healthy
+      ollama:
+        condition: service_started
     ports:
       - "5000:8080"
     networks:
@@ -53,6 +68,7 @@ services:
 
 volumes:
   pgdata:
+  ollama_data:
 
 networks:
   appnet:

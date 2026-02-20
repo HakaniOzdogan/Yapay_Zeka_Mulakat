@@ -18,7 +18,7 @@ function Report() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    loadReport()
+    void loadReport()
   }, [sessionId])
 
   const loadReport = async () => {
@@ -38,10 +38,10 @@ function Report() {
   }
 
   const getScoreColor = (score: number): string => {
-    if (score >= 80) return '#4caf50' // Green
-    if (score >= 60) return '#ff9800' // Orange
-    if (score >= 40) return '#ff6f00' // Dark Orange
-    return '#d32f2f' // Red
+    if (score >= 80) return '#4caf50'
+    if (score >= 60) return '#ff9800'
+    if (score >= 40) return '#ff6f00'
+    return '#d32f2f'
   }
 
   const getScoreGrade = (score: number): string => {
@@ -52,28 +52,33 @@ function Report() {
     return 'F'
   }
 
-  const getSeverityIcon = (severity: number): string => {
-    if (severity >= 5) return '🔴'
-    if (severity >= 4) return '🟠'
-    if (severity >= 3) return '🟡'
-    return '🟢'
+  const getSeverityTag = (severity: number): string => {
+    if (severity >= 5) return 'Critical'
+    if (severity >= 4) return 'Needs Work'
+    if (severity >= 3) return 'Fair'
+    if (severity >= 2) return 'Good'
+    return 'Excellent'
   }
 
-  if (loading) return (
-    <div className="page">
-      <div className="container">
-        <p className="loading-text">Loading report...</p>
+  if (loading) {
+    return (
+      <div className="page">
+        <div className="container">
+          <p className="loading-text">Loading report...</p>
+        </div>
       </div>
-    </div>
-  )
-  
-  if (!report) return (
-    <div className="page">
-      <div className="container">
-        <p className="error-text">Report not found</p>
+    )
+  }
+
+  if (!report) {
+    return (
+      <div className="page">
+        <div className="container">
+          <p className="error-text">Report not found</p>
+        </div>
       </div>
-    </div>
-  )
+    )
+  }
 
   const scoreCard = report.scoreCard || {}
   const feedbackItems = report.feedbackItems || []
@@ -82,28 +87,30 @@ function Report() {
     {
       label: 'Eye Contact',
       value: scoreCard.eyeContactScore || 0,
-      icon: '👁️',
-      description: 'Maintain steady eye contact with the interviewer'
+      icon: 'Eye',
+      description: 'Maintain steady eye contact with the interviewer.'
     },
     {
       label: 'Speaking Rate',
       value: scoreCard.speakingRateScore || 0,
-      icon: '🗣️',
-      description: 'Ideal pace is 120-160 words per minute'
+      icon: 'Voice',
+      description: 'Ideal pace is around 120-160 words per minute.'
     },
     {
       label: 'Filler Words',
       value: scoreCard.fillerScore || 0,
-      icon: '💬',
-      description: 'Reduce \'um\', \'uh\', \'like\' fillers'
+      icon: 'Fluency',
+      description: 'Reduce filler patterns and keep sentence flow clear.'
     },
     {
       label: 'Posture',
       value: scoreCard.postureScore || 0,
-      icon: '🧍',
-      description: 'Sit upright and minimize fidgeting'
+      icon: 'Posture',
+      description: 'Keep shoulders balanced and body language stable.'
     }
   ]
+
+  const overall = scoreCard.overallScore || 0
 
   return (
     <div className="page report-page">
@@ -115,23 +122,21 @@ function Report() {
           </p>
         </div>
 
-        {/* Overall Score Section */}
         <div className="overall-score-section">
           <div className="overall-score-card">
-            <div className="overall-score-value" style={{ color: getScoreColor(scoreCard.overallScore || 0) }}>
-              {scoreCard.overallScore || 0}
+            <div className="overall-score-value" style={{ color: getScoreColor(overall) }}>
+              {overall}
             </div>
             <div className="overall-score-label">Overall Score</div>
-            <div className="overall-score-grade">Grade: {getScoreGrade(scoreCard.overallScore || 0)}</div>
+            <div className="overall-score-grade">Grade: {getScoreGrade(overall)}</div>
             <div className="overall-score-message">
-              {(scoreCard.overallScore || 0) >= 80 && '🎉 Excellent performance!'}
-              {(scoreCard.overallScore || 0) >= 60 && (scoreCard.overallScore || 0) < 80 && '👍 Good effort! Room for improvement.'}
-              {(scoreCard.overallScore || 0) < 60 && '💪 Keep practicing! You\'ll improve.'}
+              {overall >= 80 && 'Excellent performance.'}
+              {overall >= 60 && overall < 80 && 'Strong baseline with clear improvement areas.'}
+              {overall < 60 && 'Progress possible with targeted practice.'}
             </div>
           </div>
         </div>
 
-        {/* Metrics Grid */}
         <div className="metrics-section">
           <h2>Performance Breakdown</h2>
           <div className="metrics-grid">
@@ -140,10 +145,10 @@ function Report() {
                 <div className="metric-icon">{metric.icon}</div>
                 <div className="metric-label">{metric.label}</div>
                 <div className="metric-score-container">
-                  <div 
-                    className="metric-score-circle" 
-                    style={{ 
-                      background: `conic-gradient(${getScoreColor(metric.value)} 0deg ${(metric.value / 100) * 360}deg, #f0f0f0 ${(metric.value / 100) * 360}deg 360deg)`,
+                  <div
+                    className="metric-score-circle"
+                    style={{
+                      background: `conic-gradient(${getScoreColor(metric.value)} 0deg ${(metric.value / 100) * 360}deg, #1b2748 ${(metric.value / 100) * 360}deg 360deg)`,
                       borderColor: getScoreColor(metric.value)
                     }}
                   >
@@ -156,7 +161,6 @@ function Report() {
           </div>
         </div>
 
-        {/* Feedback Section */}
         <div className="feedback-section">
           <h2>Detailed Feedback</h2>
           {feedbackItems.length > 0 ? (
@@ -165,14 +169,7 @@ function Report() {
                 <div key={idx} className="feedback-card">
                   <div className="feedback-header">
                     <div className="feedback-severity-badge">
-                      <span className="severity-icon">{getSeverityIcon(item.severity)}</span>
-                      <span className="severity-level">
-                        {item.severity === 1 ? 'Excellent' : 
-                         item.severity === 2 ? 'Good' : 
-                         item.severity === 3 ? 'Fair' : 
-                         item.severity === 4 ? 'Needs Work' : 
-                         'Critical'}
-                      </span>
+                      <span className="severity-level">{getSeverityTag(item.severity)}</span>
                     </div>
                     <div className="feedback-category">{item.category}</div>
                   </div>
@@ -180,12 +177,12 @@ function Report() {
                   <div className="feedback-details">{item.details}</div>
                   {item.suggestion && (
                     <div className="feedback-suggestion">
-                      <strong>💡 Suggestion:</strong> {item.suggestion}
+                      <strong>Suggestion:</strong> {item.suggestion}
                     </div>
                   )}
                   {item.exampleText && (
                     <div className="feedback-example">
-                      <strong>📝 Example:</strong> {item.exampleText}
+                      <strong>Example:</strong> {item.exampleText}
                     </div>
                   )}
                 </div>
@@ -193,12 +190,11 @@ function Report() {
             </div>
           ) : (
             <div className="no-feedback">
-              <p>No feedback items. Great job!</p>
+              <p>No feedback items. Great result.</p>
             </div>
           )}
         </div>
 
-        {/* Action Buttons */}
         <div className="report-actions">
           <button onClick={() => navigate('/')} className="btn btn-primary">
             Start New Interview

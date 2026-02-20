@@ -13,9 +13,15 @@ interface LiveHintsProps {
     emotion: string;
   };
   behaviorStats: BehaviorStats;
+  warningHistory: {
+    id: string;
+    type: 'warning' | 'info';
+    message: string;
+    time: string;
+  }[];
 }
 
-export const LiveHints: React.FC<LiveHintsProps> = ({ hints, metrics, behaviorStats }) => {
+export const LiveHints: React.FC<LiveHintsProps> = ({ hints, metrics, behaviorStats, warningHistory }) => {
   const emotionRows = Object.entries(behaviorStats.emotionPercentages)
     .sort((a, b) => b[1] - a[1]);
 
@@ -24,19 +30,19 @@ export const LiveHints: React.FC<LiveHintsProps> = ({ hints, metrics, behaviorSt
       <div className="metrics-mini">
         <div className={`metric ${getMetricStatus(metrics.eyeContact)}`}>
           <div className="metric-value">{Math.round(metrics.eyeContact)}</div>
-          <div className="metric-label">Göz İletişimi</div>
+          <div className="metric-label">Goz Iletisimi</div>
         </div>
         <div className={`metric ${getMetricStatus(metrics.headStability)}`}>
           <div className="metric-value">{Math.round(metrics.headStability)}</div>
-          <div className="metric-label">Baş Stabilite</div>
+          <div className="metric-label">Bas Stabilite</div>
         </div>
         <div className={`metric ${getMetricStatus(metrics.posture)}`}>
           <div className="metric-value">{Math.round(metrics.posture)}</div>
-          <div className="metric-label">Postür</div>
+          <div className="metric-label">Postur</div>
         </div>
         <div className={`metric ${getMetricStatus(metrics.fidget)}`}>
           <div className="metric-value">{Math.round(metrics.fidget)}</div>
-          <div className="metric-label">Dili Hareketleri</div>
+          <div className="metric-label">El Hareketleri</div>
         </div>
       </div>
 
@@ -68,13 +74,29 @@ export const LiveHints: React.FC<LiveHintsProps> = ({ hints, metrics, behaviorSt
 
       <div className="coaching-hints">
         {hints.length === 0 ? (
-          <div className="hint hint-good">✓ Mükemmel gidiyorsunuz!</div>
+          <div className="hint hint-good">Iyi gidiyorsunuz.</div>
         ) : (
           hints.map((hint, idx) => (
-            <div key={idx} className={`hint hint-${hint.type}`}>
+            <div key={`${hint.type}-${idx}`} className={`hint hint-${hint.type}`}>
               {hint.message}
             </div>
           ))
+        )}
+      </div>
+
+      <div className="warning-history">
+        <div className="warning-history-title">Uyari Gecmisi</div>
+        {warningHistory.length === 0 ? (
+          <div className="warning-history-empty">Henuz uyari yok.</div>
+        ) : (
+          <div className="warning-history-list">
+            {warningHistory.map(item => (
+              <div key={item.id} className={`warning-history-item ${item.type}`}>
+                <span className="warning-history-time">{item.time}</span>
+                <span className="warning-history-text">{item.message}</span>
+              </div>
+            ))}
+          </div>
         )}
       </div>
     </div>
@@ -89,13 +111,13 @@ function getMetricStatus(score: number): string {
 
 function toLabel(emotion: string): string {
   const labels: Record<string, string> = {
-    Neutral: 'Nötr',
+    Neutral: 'Notr',
     Happy: 'Mutlu',
-    Sad: 'Üzgün',
-    Angry: 'Kızgın',
-    Surprised: 'Şaşkın',
+    Sad: 'Uzgun',
+    Angry: 'Kizgin',
+    Surprised: 'Saskin',
     Tense: 'Gergin',
-    LowEnergy: 'Düşük Enerji'
+    LowEnergy: 'Dusuk Enerji'
   };
   return labels[emotion] ?? emotion;
 }

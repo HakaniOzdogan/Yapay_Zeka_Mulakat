@@ -45,6 +45,20 @@ public class SessionsController : ControllerBase
         return Ok(ToDto(session));
     }
 
+    [HttpGet]
+    public async Task<ActionResult<List<SessionDto>>> GetRecentSessions([FromQuery] int limit = 30)
+    {
+        limit = Math.Clamp(limit, 1, 200);
+
+        var sessions = await _db.Sessions
+            .Include(s => s.ScoreCard)
+            .OrderByDescending(s => s.CreatedAt)
+            .Take(limit)
+            .ToListAsync();
+
+        return Ok(sessions.Select(ToDto).ToList());
+    }
+
     private SessionDto ToDto(Session session)
     {
         return new SessionDto
@@ -53,7 +67,8 @@ public class SessionsController : ControllerBase
             CreatedAt = session.CreatedAt,
             Status = session.Status,
             SelectedRole = session.SelectedRole,
-            Language = session.Language
+            Language = session.Language,
+            OverallScore = session.ScoreCard?.OverallScore
         };
     }
 }
@@ -71,4 +86,5 @@ public class SessionDto
     public string Status { get; set; } = string.Empty;
     public string SelectedRole { get; set; } = string.Empty;
     public string Language { get; set; } = string.Empty;
+    public int? OverallScore { get; set; }
 }
