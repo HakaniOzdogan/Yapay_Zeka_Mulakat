@@ -1,0 +1,20 @@
+{
+  "caseId": "stress_restless_technical_01",
+  "profile": "technical",
+  "expected": {
+    "scoreCard": {
+      "overall": { "min": 35, "max": 60 },
+      "eyeContact": { "min": 40, "max": 70 },
+      "posture": { "min": 40, "max": 70 },
+      "fidget": { "min": 10, "max": 45 },
+      "speakingRate": { "min": 45, "max": 55 }
+    },
+    "patterns": {
+      "mustContain": ["Fidget", "HeadJitter"],
+      "mustNotContain": ["Overall"]
+    },
+    "evidence": {
+      "minWorstWindows": 1
+    }
+  }
+}

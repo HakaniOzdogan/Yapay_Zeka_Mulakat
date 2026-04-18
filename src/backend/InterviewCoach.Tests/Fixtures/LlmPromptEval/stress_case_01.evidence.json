@@ -1,0 +1,91 @@
+{
+  "sessionId": "31000000-0000-0000-0000-000000000001",
+  "language": "en",
+  "highLevel": {
+    "durationMs": 36000,
+    "overallScore": 48,
+    "topIssues": [
+      {
+        "issue": "Fidget",
+        "evidence": "High movement variability and visible restlessness.",
+        "timeRangeMs": [4000, 12000]
+      },
+      {
+        "issue": "HeadJitter",
+        "evidence": "Frequent head motion spikes while answering.",
+        "timeRangeMs": [14000, 21000]
+      }
+    ]
+  },
+  "signals": {
+    "vision": {
+      "eyeContactAvg": 0.44,
+      "postureAvg": 0.46,
+      "fidgetAvg": 0.78,
+      "headJitterAvg": 0.69
+    },
+    "audio": {
+      "wpmMedian": 150,
+      "fillerPerMin": 8.2,
+      "pauseMsPerMin": 1700
+    }
+  },
+  "worstWindows": [
+    {
+      "startMs": 3000,
+      "endMs": 9000,
+      "metrics": {
+        "eyeContact": 0.39,
+        "posture": 0.43,
+        "fidget": 0.82,
+        "headJitter": 0.71,
+        "wpm": 152,
+        "filler": 3,
+        "pauseMs": 1200
+      },
+      "reason": "low eye contact, weak posture, high fidget, high head jitter, filler spike"
+    },
+    {
+      "startMs": 14000,
+      "endMs": 20000,
+      "metrics": {
+        "eyeContact": 0.41,
+        "posture": 0.45,
+        "fidget": 0.79,
+        "headJitter": 0.75,
+        "wpm": 148,
+        "filler": 2,
+        "pauseMs": 900
+      },
+      "reason": "composite metric decline"
+    }
+  ],
+  "transcriptSlices": [
+    {
+      "startMs": 2500,
+      "endMs": 9800,
+      "text": "I think maybe we can start with architecture then optimize later, um, with caching and retries."
+    },
+    {
+      "startMs": 13800,
+      "endMs": 20300,
+      "text": "I would probably tune indexes first and then maybe revisit service boundaries."
+    }
+  ],
+  "patterns": [
+    {
+      "type": "Fidget",
+      "startMs": 3500,
+      "endMs": 8900,
+      "severity": 5,
+      "evidence": "High body movement and unstable hand activity."
+    },
+    {
+      "type": "HeadJitter",
+      "startMs": 14500,
+      "endMs": 19700,
+      "severity": 4,
+      "evidence": "Frequent head direction changes while speaking."
+    }
+  ]
+}

@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="tr"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Analiz Sonuçları - Yapay Zeka Mülakat</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&amp;family=Inter:wght@300;400;500;600&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              "inverse-surface": "#e5e2e1",
+              "tertiary": "#ffb783",
+              "on-tertiary": "#4f2500",
+              "surface-variant": "#353434",
+              "on-primary-fixed-variant": "#2f2ebe",
+              "on-secondary-fixed": "#40000d",
+              "surface-container-high": "#2a2a2a",
+              "secondary-container": "#b50036",
+              "surface-container-lowest": "#0e0e0e",
+              "primary-container": "#8083ff",
+              "outline-variant": "#464554",
+              "on-error": "#690005",
+              "on-surface-variant": "#c7c4d7",
+              "on-error-container": "#ffdad6",
+              "error": "#ffb4ab",
+              "primary": "#c0c1ff",
+              "on-secondary-fixed-variant": "#92002a",
+              "on-primary": "#1000a9",
+              "secondary-fixed-dim": "#ffb2b7",
+              "on-tertiary-fixed-variant": "#703700",
+              "on-tertiary-fixed": "#301400",
+              "surface-bright": "#3a3939",
+              "inverse-primary": "#494bd6",
+              "on-secondary-container": "#ffc2c4",
+              "on-primary-fixed": "#07006c",
+              "on-secondary": "#67001b",
+              "primary-fixed-dim": "#c0c1ff",
+              "secondary-fixed": "#ffdadb",
+              "tertiary-container": "#d97721",
+              "surface-container-low": "#1c1b1b",
+              "surface-container-highest": "#353434",
+              "error-container": "#93000a",
+              "tertiary-fixed-dim": "#ffb783",
+              "surface": "#141313",
+              "inverse-on-surface": "#313030",
+              "outline": "#908fa0",
+              "background": "#141313",
+              "tertiary-fixed": "#ffdcc5",
+              "on-primary-container": "#0d0096",
+              "surface-container": "#201f1f",
+              "on-surface": "#e5e2e1",
+              "on-tertiary-container": "#452000",
+              "surface-dim": "#141313",
+              "surface-tint": "#c0c1ff",
+              "primary-fixed": "#e1e0ff",
+              "on-background": "#e5e2e1",
+              "secondary": "#ffb2b7"
+            },
+            fontFamily: {
+              "headline": ["Manrope"],
+              "body": ["Inter"],
+              "label": ["Inter"]
+            },
+            borderRadius: {"DEFAULT": "0.125rem", "lg": "0.25rem", "xl": "0.5rem", "full": "0.75rem"},
+          },
+        },
+      }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .glass-card {
+            background: rgba(53, 52, 52, 0.4);
+            backdrop-filter: blur(12px);
+        }
+        .text-glow {
+            text-shadow: 0 0 20px rgba(192, 193, 255, 0.3);
+        }
+        /* Custom scrollbar for Inter-focused UI */
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-track { background: #141313; }
+        ::-webkit-scrollbar-thumb { background: #353434; border-radius: 10px; }
+    </style>
+</head>
+<body class="bg-background text-on-surface font-body selection:bg-primary/30">
+<!-- TopNavBar -->
+<nav class="fixed top-0 w-full z-50 bg-surface/40 dark:bg-[#141313]/40 backdrop-blur-xl">
+<div class="flex justify-between items-center px-8 py-4 w-full max-w-screen-2xl mx-auto">
+<div class="text-xl font-bold tracking-tight text-[#e5e2e1] font-headline">Yapay Zeka Mülakat</div>
+<div class="hidden md:flex gap-8 items-center">
+<a class="text-[#e5e2e1]/70 hover:text-[#e5e2e1] transition-colors font-body text-[0.875rem]" href="#">Platform</a>
+<a class="text-[#e5e2e1]/70 hover:text-[#e5e2e1] transition-colors font-body text-[0.875rem]" href="#">Özellikler</a>
+<a class="text-[#c0c1ff] font-semibold border-b-2 border-[#c0c1ff] pb-1 font-body text-[0.875rem]" href="#">Analiz</a>
+</div>
+<div class="flex items-center gap-4">
+<button class="px-6 py-2 rounded-md bg-gradient-to-br from-primary to-primary-container text-on-primary font-semibold text-sm transition-all hover:scale-95 duration-200">
+                    Giriş Yap
+                </button>
+<div class="w-10 h-10 rounded-full overflow-hidden border border-outline-variant/15">
+<img alt="Candidate Profile Avatar" data-alt="professional corporate headshot of a young professional with a friendly smile, clean studio lighting, minimalist dark background" src="https://lh3.googleusercontent.com/aida-public/AB6AXuC4TLlv725sKKr1DCYy0GGxw511hPFuL2Ag84aYun_Ye9QoNTI2QezCdkFXe4Q_yLaT0j2584jxx8sZ_p1h-ZJwyUM1CRptNRgoyB7nWIRH6pXaoFc-iFlC2JG-XN3D_H8Q77l-1HORxpn7LMVpN-GxD726fQS5dTqws59ME4N9uAxa-mkci6CptL9gUzPKQk2HFcuRGyFZZbpmm49uIujfvpPPtMTw3RXQ2yro6iubALN5DdlPBG2AnI4UUHP7RBKK7UzuHD2XY50a"/>
+</div>
+</div>
+</div>
+</nav>
+<!-- Sidebar (Large Screens) -->
+<aside class="hidden lg:flex fixed left-0 top-0 h-full w-64 bg-[#141313] border-r border-[#e5e2e1]/15 flex-col py-6 z-40">
+<div class="px-6 mb-10">
+<div class="text-lg font-black text-[#c0c1ff] font-headline mb-1">Kullanıcı Paneli</div>
+<div class="text-[0.6875rem] text-on-surface-variant font-label">AI Interview Prep</div>
+</div>
+<nav class="flex-1 space-y-1 px-3">
+<a class="flex items-center gap-3 text-[#e5e2e1]/60 px-4 py-2 hover:text-[#e5e2e1] hover:bg-[#e5e2e1]/5 transition-all group" href="#">
+<span class="material-symbols-outlined" data-icon="dashboard">dashboard</span>
+<span class="font-label text-sm">Dashboard</span>
+</a>
+<a class="flex items-center gap-3 text-[#e5e2e1]/60 px-4 py-2 hover:text-[#e5e2e1] hover:bg-[#e5e2e1]/5 transition-all group" href="#">
+<span class="material-symbols-outlined" data-icon="video_chat">video_chat</span>
+<span class="font-label text-sm">Mülakatlarım</span>
+</a>
+<a class="flex items-center gap-3 bg-[#c0c1ff]/10 text-[#c0c1ff] rounded-md font-medium px-4 py-2 border-l-4 border-[#c0c1ff]" href="#">
+<span class="material-symbols-outlined" data-icon="analytics" style="font-variation-settings: 'FILL' 1;">analytics</span>
+<span class="font-label text-sm">Analizler</span>
+</a>
+<a class="flex items-center gap-3 text-[#e5e2e1]/60 px-4 py-2 hover:text-[#e5e2e1] hover:bg-[#e5e2e1]/5 transition-all group" href="#">
+<span class="material-symbols-outlined" data-icon="settings">settings</span>
+<span class="font-label text-sm">Ayarlar</span>
+</a>
+</nav>
+<div class="px-4 mt-auto mb-6">
+<button class="w-full py-3 bg-primary/10 text-primary border border-primary/20 rounded-xl font-semibold flex items-center justify-center gap-2 hover:bg-primary/20 transition-all">
+<span class="material-symbols-outlined text-sm">add</span>
+                Yeni Mülakat
+            </button>
+</div>
+<div class="px-3 border-t border-outline-variant/15 pt-4">
+<a class="flex items-center gap-3 text-[#e5e2e1]/60 px-4 py-2 hover:text-[#e5e2e1] transition-all" href="#">
+<span class="material-symbols-outlined">help</span>
+<span class="text-sm">Destek</span>
+</a>
+<a class="flex items-center gap-3 text-[#ffb2b7]/60 px-4 py-2 hover:text-secondary transition-all" href="#">
+<span class="material-symbols-outlined">logout</span>
+<span class="text-sm">Çıkış</span>
+</a>
+</div>
+</aside>
+<!-- Main Content -->
+<main class="pt-24 pb-12 px-6 lg:ml-64 min-h-screen">
+<div class="max-w-7xl mx-auto">
+<!-- Hero Header Section -->
+<header class="mb-12 flex flex-col md:flex-row md:items-end justify-between gap-6">
+<div>
+<h1 class="text-display-lg font-headline font-extrabold text-[#e5e2e1] leading-tight mb-2 tracking-tight text-5xl lg:text-[3.5rem] text-glow">
+                        Mülakat Analizi
+                    </h1>
+<p class="text-on-surface-variant text-lg font-light max-w-2xl">
+                        Yazılım Mühendisi (Senior) pozisyonu için gerçekleştirdiğiniz mülakatın derinlemesine yapay zeka değerlendirmesi.
+                    </p>
+</div>
+<div class="flex gap-4">
+<button class="px-6 py-3 border border-outline-variant/15 text-on-surface rounded-xl hover:bg-white/5 transition-all flex items-center gap-2">
+<span class="material-symbols-outlined text-xl">share</span>
+                        Sonuçları Paylaş
+                    </button>
+<button class="px-6 py-3 bg-gradient-to-br from-primary to-primary-container text-on-primary font-bold rounded-xl shadow-xl shadow-primary/10 hover:scale-[0.98] transition-all flex items-center gap-2">
+<span class="material-symbols-outlined text-xl">replay</span>
+                        Tekrar Pratik Yap
+                    </button>
+</div>
+</header>
+<!-- Bento Grid Analysis -->
+<div class="grid grid-cols-1 md:grid-cols-12 gap-6">
+<!-- Overall Score (Left Column) -->
+<div class="md:col-span-4 glass-card p-8 rounded-xl flex flex-col items-center justify-center text-center border border-white/5">
+<div class="relative w-48 h-48 flex items-center justify-center mb-6">
+<svg class="w-full h-full -rotate-90">
+<circle class="text-surface-container-high" cx="96" cy="96" fill="transparent" r="88" stroke="currentColor" stroke-width="8"></circle>
+<circle class="text-primary" cx="96" cy="96" fill="transparent" r="88" stroke="currentColor" stroke-dasharray="552.9" stroke-dashoffset="110.5" stroke-width="8"></circle>
+</svg>
+<div class="absolute inset-0 flex flex-col items-center justify-center">
+<span class="text-5xl font-black font-headline text-primary">82</span>
+<span class="text-xs uppercase tracking-widest text-on-surface-variant">Toplam Skor</span>
+</div>
+</div>
+<div class="space-y-2">
+<h3 class="text-xl font-bold font-headline">Harika Bir Başlangıç!</h3>
+<p class="text-sm text-on-surface-variant leading-relaxed">Teknik bilgi birikiminiz pozisyon gereksinimlerini %90 oranında karşılıyor.</p>
+</div>
+</div>
+<!-- Radar Analysis / Visuals (Middle Column) -->
+<div class="md:col-span-8 glass-card p-8 rounded-xl border border-white/5 overflow-hidden relative">
+<div class="absolute top-0 right-0 w-64 h-64 bg-primary/10 blur-[80px] -z-10 rounded-full"></div>
+<div class="flex justify-between items-start mb-8">
+<div>
+<h3 class="text-xl font-bold font-headline mb-1">Yetkinlik Dağılımı</h3>
+<p class="text-xs text-on-surface-variant font-label">5 temel kategori üzerinden AI değerlendirmesi</p>
+</div>
+<div class="px-3 py-1 bg-primary/10 border border-primary/20 rounded-full text-[10px] font-bold text-primary uppercase tracking-tighter">Canlı Analiz</div>
+</div>
+<div class="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6">
+<!-- Technical Bar -->
+<div class="flex flex-col gap-3">
+<span class="text-xs font-label text-on-surface-variant uppercase tracking-widest">Teknik</span>
+<div class="h-32 w-full bg-surface-container-high rounded-lg flex items-end">
+<div class="w-full bg-primary rounded-lg transition-all duration-1000" style="height: 92%;"></div>
+</div>
+<span class="text-sm font-bold text-primary">92%</span>
+</div>
+<!-- Behavioral Bar -->
+<div class="flex flex-col gap-3">
+<span class="text-xs font-label text-on-surface-variant uppercase tracking-widest">Davranış</span>
+<div class="h-32 w-full bg-surface-container-high rounded-lg flex items-end">
+<div class="w-full bg-secondary rounded-lg transition-all duration-1000" style="height: 74%;"></div>
+</div>
+<span class="text-sm font-bold text-secondary">74%</span>
+</div>
+<!-- Language Bar -->
+<div class="flex flex-col gap-3">
+<span class="text-xs font-label text-on-surface-variant uppercase tracking-widest">Dil/Akıcılık</span>
+<div class="h-32 w-full bg-surface-container-high rounded-lg flex items-end">
+<div class="w-full bg-tertiary rounded-lg transition-all duration-1000" style="height: 85%;"></div>
+</div>
+<span class="text-sm font-bold text-tertiary">85%</span>
+</div>
+<!-- Body Language Bar -->
+<div class="flex flex-col gap-3">
+<span class="text-xs font-label text-on-surface-variant uppercase tracking-widest">Vücut Dili</span>
+<div class="h-32 w-full bg-surface-container-high rounded-lg flex items-end">
+<div class="w-full bg-white/40 rounded-lg transition-all duration-1000" style="height: 68%;"></div>
+</div>
+<span class="text-sm font-bold text-on-surface">68%</span>
+</div>
+</div>
+</div>
+<!-- Behavioral Analysis (Full Width Bottom) -->
+<div class="md:col-span-12 grid grid-cols-1 lg:grid-cols-3 gap-6">
+<div class="lg:col-span-1 bg-surface-container-low p-8 rounded-xl border border-white/5">
+<h3 class="headline-sm font-headline font-bold mb-6 flex items-center gap-2">
+<span class="material-symbols-outlined text-primary">psychology</span>
+                            Davranışsal Analiz
+                        </h3>
+<div class="space-y-6">
+<div class="p-4 bg-surface-container-high rounded-xl">
+<div class="flex justify-between mb-2">
+<span class="text-sm font-medium">Özgüven Seviyesi</span>
+<span class="text-sm text-primary">Yüksek</span>
+</div>
+<div class="w-full h-1.5 bg-surface-variant rounded-full overflow-hidden">
+<div class="h-full bg-primary" style="width: 88%;"></div>
+</div>
+</div>
+<div class="p-4 bg-surface-container-high rounded-xl">
+<div class="flex justify-between mb-2">
+<span class="text-sm font-medium">Ses Tonu &amp; Vurgu</span>
+<span class="text-sm text-secondary">Dengeli</span>
+</div>
+<div class="w-full h-1.5 bg-surface-variant rounded-full overflow-hidden">
+<div class="h-full bg-secondary" style="width: 72%;"></div>
+</div>
+</div>
+<div class="p-4 bg-surface-container-high rounded-xl">
+<div class="flex justify-between mb-2">
+<span class="text-sm font-medium">Göz Teması</span>
+<span class="text-sm text-on-surface-variant">Geliştirilmeli</span>
+</div>
+<div class="w-full h-1.5 bg-surface-variant rounded-full overflow-hidden">
+<div class="h-full bg-on-surface-variant" style="width: 45%;"></div>
+</div>
+</div>
+</div>
+</div>
+<div class="lg:col-span-2 bg-surface-container-low p-8 rounded-xl border border-white/5 flex flex-col">
+<h3 class="headline-sm font-headline font-bold mb-6">Detaylı Geri Bildirim</h3>
+<div class="grid grid-cols-1 md:grid-cols-2 gap-8 flex-1">
+<div class="space-y-4">
+<div class="flex items-center gap-2 text-primary font-bold uppercase tracking-widest text-xs">
+<span class="material-symbols-outlined text-lg">check_circle</span>
+                                    Güçlü Yanlar
+                                </div>
+<ul class="space-y-3">
+<li class="flex gap-3 text-sm text-on-surface-variant">
+<span class="text-primary select-none">•</span>
+                                        Karmaşık teknik mimarileri basit terimlerle açıklama yeteneği.
+                                    </li>
+<li class="flex gap-3 text-sm text-on-surface-variant">
+<span class="text-primary select-none">•</span>
+                                        Zor sorular karşısında sakin kalarak mantıklı bir akış kurma.
+                                    </li>
+<li class="flex gap-3 text-sm text-on-surface-variant">
+<span class="text-primary select-none">•</span>
+                                        Endüstri standartlarına (SOLID, Clean Code) hakimiyet.
+                                    </li>
+</ul>
+</div>
+<div class="space-y-4">
+<div class="flex items-center gap-2 text-secondary font-bold uppercase tracking-widest text-xs">
+<span class="material-symbols-outlined text-lg">error</span>
+                                    Gelişim Alanları
+                                </div>
+<ul class="space-y-3">
+<li class="flex gap-3 text-sm text-on-surface-variant">
+<span class="text-secondary select-none">•</span>
+                                        Cevap verirken aşırı teknik terim kullanımından kaçınılabilir.
+                                    </li>
+<li class="flex gap-3 text-sm text-on-surface-variant">
+<span class="text-secondary select-none">•</span>
+                                        "Iıı" ve "Şey" gibi duraksama kelimelerinin sıklığı azaltılmalı.
+                                    </li>
+<li class="flex gap-3 text-sm text-on-surface-variant">
+<span class="text-secondary select-none">•</span>
+                                        Liderlik deneyimleri aktarılırken daha somut veriler verilmeli.
+                                    </li>
+</ul>
+</div>
+</div>
+</div>
+</div>
+<!-- Video Playback & Timestamps -->
+<div class="md:col-span-12 glass-card rounded-xl border border-white/5 overflow-hidden">
+<div class="grid grid-cols-1 lg:grid-cols-3">
+<!-- Video Feed Area -->
+<div class="lg:col-span-2 p-1 bg-black relative aspect-video flex items-center justify-center">
+<img class="w-full h-full object-cover opacity-60" data-alt="webcam point of view of a professional woman during a video conference, focused expression, blurred home office background, cool lighting" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCm4DxXGXRc-8HoeT15wh2C-bEpJcXYDHIzURhGM4QjFEYWNkcUjCYPtBI-oMOkiPNf1lueDnKkpugirmZqokKlCRzwzUCHyiIwJqoz7YcL3-CC0PlNmMWqW9Qpkw30XqiJvfUcH5BqZwPS2k4MucDl_MngFnN5LtlDz_ya0AevzcH1_al5Qpcxmc752ogKL5isTyc274BKmLtSq6ps-ByLz1n4g6v26Kr6BLAXD_p4wLmFAvyqSPePTKmxEAPgx3v8rE0yag27_Fjv"/>
+<div class="absolute inset-0 flex items-center justify-center">
+<button class="w-16 h-16 bg-primary text-on-primary rounded-full flex items-center justify-center shadow-2xl hover:scale-110 transition-transform">
+<span class="material-symbols-outlined text-4xl" style="font-variation-settings: 'FILL' 1;">play_arrow</span>
+</button>
+</div>
+<!-- AI Pulse Overlay -->
+<div class="absolute bottom-6 right-6 flex items-center gap-3 px-4 py-2 bg-black/60 backdrop-blur-md rounded-full border border-white/10">
+<div class="w-2 h-2 rounded-full bg-primary animate-pulse"></div>
+<span class="text-xs font-label uppercase tracking-widest text-on-surface">AI Analizi Aktif</span>
+</div>
+</div>
+<!-- Notated Timestamps -->
+<div class="p-6 lg:p-8 bg-surface-container-low">
+<h4 class="text-lg font-bold font-headline mb-6">AI Notları</h4>
+<div class="space-y-1 overflow-y-auto max-h-[350px] pr-2">
+<button class="w-full text-left p-4 rounded-xl hover:bg-white/5 transition-all group flex gap-4 items-start border-l-2 border-transparent hover:border-primary">
+<span class="text-xs font-mono text-primary pt-1">01:24</span>
+<div>
+<p class="text-sm font-semibold mb-1 group-hover:text-primary transition-colors">Yüksek Heyecan Tespit Edildi</p>
+<p class="text-xs text-on-surface-variant">Ses tonundaki titreme özgüven skorunu etkiledi.</p>
+</div>
+</button>
+<button class="w-full text-left p-4 rounded-xl bg-primary/5 flex gap-4 items-start border-l-2 border-primary">
+<span class="text-xs font-mono text-primary pt-1">03:45</span>
+<div>
+<p class="text-sm font-semibold mb-1 text-primary">Kritik Teknik Tanım</p>
+<p class="text-xs text-on-surface-variant">Mikroservis mimarisi üzerine başarılı bir açıklama yapıldı.</p>
+</div>
+</button>
+<button class="w-full text-left p-4 rounded-xl hover:bg-white/5 transition-all group flex gap-4 items-start border-l-2 border-transparent hover:border-secondary">
+<span class="text-xs font-mono text-secondary pt-1">08:12</span>
+<div>
+<p class="text-sm font-semibold mb-1 group-hover:text-secondary transition-colors">Göz Teması Kaybı</p>
+<p class="text-xs text-on-surface-variant">Ekrana bakma oranı düştü, dikkati toplamak önemli.</p>
+</div>
+</button>
+<button class="w-full text-left p-4 rounded-xl hover:bg-white/5 transition-all group flex gap-4 items-start border-l-2 border-transparent hover:border-tertiary">
+<span class="text-xs font-mono text-tertiary pt-1">12:55</span>
+<div>
+<p class="text-sm font-semibold mb-1 group-hover:text-tertiary transition-colors">Sonuç Odaklı Yaklaşım</p>
+<p class="text-xs text-on-surface-variant">Proje başarı kriterlerini net bir şekilde belirttiniz.</p>
+</div>
+</button>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</main>
+<!-- Footer -->
+<footer class="bg-[#141313] w-full border-t border-[#e5e2e1]/15 mt-20">
+<div class="flex flex-col md:flex-row justify-between items-center px-12 py-10 w-full max-w-screen-2xl mx-auto">
+<div class="mb-6 md:mb-0">
+<div class="text-md font-bold text-[#e5e2e1] font-headline">Yapay Zeka Mülakat</div>
+<p class="text-[0.875rem] text-[#e5e2e1]/50 mt-1 font-body">© 2024 Yapay Zeka Mülakat. Tüm hakları saklıdır.</p>
+</div>
+<div class="flex gap-8">
+<a class="text-[#e5e2e1]/50 hover:text-[#c0c1ff] transition-colors text-sm font-body" href="#">Gizlilik</a>
+<a class="text-[#e5e2e1]/50 hover:text-[#c0c1ff] transition-colors text-sm font-body" href="#">Kullanım Koşulları</a>
+<a class="text-[#e5e2e1]/50 hover:text-[#c0c1ff] transition-colors text-sm font-body" href="#">İletişim</a>
+</div>
+</div>
+</footer>
+</body></html>

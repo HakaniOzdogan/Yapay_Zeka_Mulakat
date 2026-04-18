@@ -1,0 +1,20 @@
+{
+  "caseId": "good_balanced_general_01",
+  "profile": "general",
+  "expected": {
+    "scoreCard": {
+      "overall": { "min": 62, "max": 80 },
+      "eyeContact": { "min": 75, "max": 100 },
+      "posture": { "min": 75, "max": 100 },
+      "fidget": { "min": 75, "max": 100 },
+      "speakingRate": { "min": 45, "max": 55 }
+    },
+    "patterns": {
+      "mustContain": [],
+      "mustNotContain": ["EyeContact", "Posture", "Fidget", "HeadJitter"]
+    },
+    "evidence": {
+      "minWorstWindows": 1
+    }
+  }
+}

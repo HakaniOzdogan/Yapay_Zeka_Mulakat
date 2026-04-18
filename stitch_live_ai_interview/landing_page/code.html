@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="tr"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;700;800&amp;family=Inter:wght@300;400;500;600&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "inverse-surface": "#e5e2e1",
+                        "tertiary": "#ffb783",
+                        "on-tertiary": "#4f2500",
+                        "surface-variant": "#353434",
+                        "on-primary-fixed-variant": "#2f2ebe",
+                        "on-secondary-fixed": "#40000d",
+                        "surface-container-high": "#2a2a2a",
+                        "secondary-container": "#b50036",
+                        "surface-container-lowest": "#0e0e0e",
+                        "primary-container": "#8083ff",
+                        "outline-variant": "#464554",
+                        "on-error": "#690005",
+                        "on-surface-variant": "#c7c4d7",
+                        "on-error-container": "#ffdad6",
+                        "error": "#ffb4ab",
+                        "primary": "#c0c1ff",
+                        "on-secondary-fixed-variant": "#92002a",
+                        "on-primary": "#1000a9",
+                        "secondary-fixed-dim": "#ffb2b7",
+                        "on-tertiary-fixed-variant": "#703700",
+                        "on-tertiary-fixed": "#301400",
+                        "surface-bright": "#3a3939",
+                        "inverse-primary": "#494bd6",
+                        "on-secondary-container": "#ffc2c4",
+                        "on-primary-fixed": "#07006c",
+                        "on-secondary": "#67001b",
+                        "primary-fixed-dim": "#c0c1ff",
+                        "secondary-fixed": "#ffdadb",
+                        "tertiary-container": "#d97721",
+                        "surface-container-low": "#1c1b1b",
+                        "surface-container-highest": "#353434",
+                        "error-container": "#93000a",
+                        "tertiary-fixed-dim": "#ffb783",
+                        "surface": "#141313",
+                        "inverse-on-surface": "#313030",
+                        "outline": "#908fa0",
+                        "background": "#141313",
+                        "tertiary-fixed": "#ffdcc5",
+                        "on-primary-container": "#0d0096",
+                        "surface-container": "#201f1f",
+                        "on-surface": "#e5e2e1",
+                        "on-tertiary-container": "#452000",
+                        "surface-dim": "#141313",
+                        "surface-tint": "#c0c1ff",
+                        "primary-fixed": "#e1e0ff",
+                        "on-background": "#e5e2e1",
+                        "secondary": "#ffb2b7"
+                    },
+                    fontFamily: {
+                        "headline": ["Manrope"],
+                        "body": ["Inter"],
+                        "label": ["Inter"]
+                    },
+                    borderRadius: {
+                        "DEFAULT": "0.125rem",
+                        "lg": "0.25rem",
+                        "xl": "0.5rem",
+                        "full": "0.75rem"
+                    },
+                },
+            },
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .hero-geometric-mask {
+            mask-image: radial-gradient(circle at center, black, transparent 80%);
+        }
+    </style>
+</head>
+<body class="bg-surface text-on-surface font-body selection:bg-primary/30 selection:text-primary-fixed overflow-x-hidden">
+<!-- TopNavBar -->
+<nav class="fixed top-0 w-full z-50 bg-surface/40 dark:bg-[#141313]/40 backdrop-blur-xl">
+<div class="flex justify-between items-center px-8 py-4 w-full max-w-screen-2xl mx-auto">
+<div class="text-xl font-bold tracking-tight text-[#e5e2e1] font-headline">
+                Yapay Zeka Mülakat
+            </div>
+<div class="hidden md:flex items-center space-x-8">
+<a class="text-[#c0c1ff] font-semibold border-b-2 border-[#c0c1ff] pb-1 font-label text-sm" href="#">Platform</a>
+<a class="text-[#e5e2e1]/70 hover:text-[#e5e2e1] transition-colors font-label text-sm" href="#">Özellikler</a>
+<a class="text-[#e5e2e1]/70 hover:text-[#e5e2e1] transition-colors font-label text-sm" href="#">Analiz</a>
+</div>
+<div class="flex items-center space-x-6">
+<button class="text-[#e5e2e1]/70 hover:text-[#e5e2e1] transition-colors font-label text-sm">Giriş Yap</button>
+<button class="bg-gradient-to-br from-primary to-primary-container text-on-primary font-semibold px-6 py-2 rounded-md hover:scale-95 transition-all duration-200 ease-in-out text-sm">
+                    Ücretsiz Dene
+                </button>
+</div>
+</div>
+</nav>
+<!-- Hero Section with HeroGeometric Concept -->
+<header class="relative min-h-screen flex items-center justify-center pt-20 overflow-hidden">
+<!-- HeroGeometric Background Elements -->
+<div class="absolute inset-0 z-0">
+<div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] bg-primary/10 rounded-full blur-[120px] opacity-50"></div>
+<div class="absolute top-1/4 right-1/4 w-[400px] h-[400px] bg-secondary/10 rounded-full blur-[100px] opacity-30"></div>
+<!-- Asymmetric Shapes -->
+<div class="absolute top-40 left-20 w-32 h-32 border border-primary/20 rotate-45 hidden lg:block"></div>
+<div class="absolute bottom-40 right-20 w-48 h-48 border border-secondary/20 -rotate-12 hidden lg:block"></div>
+</div>
+<div class="container mx-auto px-8 relative z-10 grid lg:grid-cols-2 gap-12 items-center">
+<div class="text-center lg:text-left">
+<h1 class="font-headline text-[3.5rem] leading-[1.1] font-extrabold tracking-tight mb-8">
+                    Geleceğin <span class="text-primary italic">Mülakat</span> Deneyimi Burada.
+                </h1>
+<p class="text-on-surface-variant text-lg max-w-xl mx-auto lg:mx-0 mb-10 leading-relaxed">
+                    Yapay zeka destekli simülasyonlarla mülakat becerilerinizi geliştirin. Gerçek zamanlı analiz ve kişiselleştirilmiş geri bildirimlerle kariyerinizde devrim yaratın.
+                </p>
+<div class="flex flex-col sm:flex-row gap-4 justify-center lg:justify-start">
+<button class="bg-gradient-to-br from-primary to-primary-container text-on-primary font-bold px-10 py-4 rounded-md text-lg hover:scale-105 transition-transform">
+                        Hemen Başla
+                    </button>
+<button class="border border-outline-variant/30 bg-surface-variant/20 backdrop-blur-md text-on-surface px-10 py-4 rounded-md text-lg hover:bg-surface-variant/40 transition-colors flex items-center justify-center gap-2">
+<span class="material-symbols-outlined">play_circle</span>
+                        Demosunu İzle
+                    </button>
+</div>
+</div>
+<!-- AI Pulse Component Visual -->
+<div class="relative flex justify-center items-center">
+<div class="relative w-full aspect-square max-w-md rounded-xl overflow-hidden shadow-2xl bg-surface-container-low group">
+<img class="w-full h-full object-cover opacity-80 transition-transform duration-700 group-hover:scale-110" data-alt="Professional woman in a blazer participating in a video interview, focused expression, high-end corporate office background with soft bokeh" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDoULX94s2aMakiACSLoqX9FgKHEj3GOB6S99NIm_oRb5e05pvDspSwUNLU5hhsj_dcv1g3-9D-UklqlD3mzbXX2GRHHnfysIq31PgkP6OxahkB1KnUpQWiO7Y5phnpl7sqEkChC6XRrK3W4jjduecQjsaE_yWtdr9GVAN7twZDrilYWECSQxNWqLp093darLK7I2e6TbNAy_dWrZLpmHd0eORxzuYlT2jtRXENPLLAyqmdKx7YWPlVVBqJAEPIs9E6MOyJIdAO_-Tw"/>
+<!-- AI Listening Pulse Overlay -->
+<div class="absolute inset-0 bg-gradient-to-t from-surface to-transparent opacity-60"></div>
+<div class="absolute bottom-8 left-1/2 -translate-x-1/2 w-32 h-32 flex items-center justify-center">
+<div class="absolute inset-0 bg-primary/20 rounded-full animate-ping"></div>
+<div class="absolute inset-4 bg-primary/40 rounded-full animate-pulse"></div>
+<div class="relative z-10 text-primary bg-surface/80 p-4 rounded-full backdrop-blur-lg border border-primary/30">
+<span class="material-symbols-outlined text-4xl" data-weight="fill">graphic_eq</span>
+</div>
+</div>
+<div class="absolute top-6 left-6 bg-surface/60 backdrop-blur-md px-4 py-2 rounded-full border border-outline-variant/20">
+<span class="text-xs font-label text-primary flex items-center gap-2 uppercase tracking-widest">
+<span class="w-2 h-2 rounded-full bg-primary animate-pulse"></span>
+                            AI Analiz Ediyor
+                        </span>
+</div>
+</div>
+</div>
+</div>
+</header>
+<!-- How it Works: Bento Grid Layout -->
+<section class="py-28 bg-surface-container-low relative">
+<div class="container mx-auto px-8">
+<div class="max-w-3xl mb-16">
+<h2 class="font-headline text-headline-sm font-bold text-primary mb-4 tracking-wide uppercase">Süreç Nasıl İşler?</h2>
+<h3 class="font-headline text-4xl font-bold mb-6">Akıllı mülakat asistanınızla tanışın.</h3>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+<!-- Step 1 -->
+<div class="bg-surface p-10 rounded-xl flex flex-col justify-between border-l-4 border-primary transition-all hover:bg-surface-container-high group">
+<div>
+<span class="material-symbols-outlined text-primary text-4xl mb-6">psychology</span>
+<h4 class="text-2xl font-bold mb-4 font-headline">AI Destekli Sorular</h4>
+<p class="text-on-surface-variant leading-relaxed">Başvurduğunuz pozisyona ve deneyim seviyenize göre özelleştirilmiş, sektörel ve davranışsal sorular.</p>
+</div>
+<div class="mt-8 opacity-0 group-hover:opacity-100 transition-opacity">
+<a class="text-primary flex items-center gap-2 font-medium" href="#">Detayları Gör <span class="material-symbols-outlined">arrow_forward</span></a>
+</div>
+</div>
+<!-- Step 2 -->
+<div class="bg-surface p-10 rounded-xl flex flex-col justify-between border-l-4 border-secondary transition-all hover:bg-surface-container-high group">
+<div>
+<span class="material-symbols-outlined text-secondary text-4xl mb-6">videocam</span>
+<h4 class="text-2xl font-bold mb-4 font-headline">Gerçek Zamanlı Geri Bildirim</h4>
+<p class="text-on-surface-variant leading-relaxed">Mülakat sırasında mimiklerinizden ses tonunuza kadar her an anlık yapay zeka analizi.</p>
+</div>
+<div class="mt-8 opacity-0 group-hover:opacity-100 transition-opacity">
+<a class="text-secondary flex items-center gap-2 font-medium" href="#">Detayları Gör <span class="material-symbols-outlined">arrow_forward</span></a>
+</div>
+</div>
+<!-- Step 3 -->
+<div class="bg-surface p-10 rounded-xl flex flex-col justify-between border-l-4 border-tertiary transition-all hover:bg-surface-container-high group">
+<div>
+<span class="material-symbols-outlined text-tertiary text-4xl mb-6">analytics</span>
+<h4 class="text-2xl font-bold mb-4 font-headline">Derinlemesine Analiz</h4>
+<p class="text-on-surface-variant leading-relaxed">Mülakat sonunda zayıf ve güçlü yönlerinizi gösteren kapsamlı bir performans raporu.</p>
+</div>
+<div class="mt-8 opacity-0 group-hover:opacity-100 transition-opacity">
+<a class="text-tertiary flex items-center gap-2 font-medium" href="#">Detayları Gör <span class="material-symbols-outlined">arrow_forward</span></a>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- Features Section: Asymmetric Editorial Layout -->
+<section class="py-28 bg-surface overflow-hidden">
+<div class="container mx-auto px-8">
+<div class="flex flex-col lg:flex-row gap-20 items-center">
+<div class="lg:w-1/2 order-2 lg:order-1 relative">
+<div class="absolute -top-10 -left-10 w-64 h-64 bg-primary/5 rounded-full blur-3xl"></div>
+<div class="grid grid-cols-2 gap-4">
+<div class="space-y-4">
+<div class="bg-surface-container-high p-1 rounded-xl">
+<img class="w-full h-48 object-cover rounded-lg" data-alt="Detailed data analytics dashboard showing complex charts and graphs in a dark mode UI with indigo highlights" src="https://lh3.googleusercontent.com/aida-public/AB6AXuA3MNG5mGhD90NDXAQHjVAJnESP_k-AsLuiiaRf7DiuLl-k5YiNg5eYSqJZpYCARpiUpWccnyEsl-EwrWns0vVvrn2FnKhfi331T6EB83Tx7eHUisjaHEYNtTH708xcOSERRhBkdEkIlky9VXszGzZNNCPCmLrVR4euzov8Dj9Ez0ilrADD9xoLqIZBrFxVOyRxnj6n_5eRJbaBsjcCVx81ItNXwU4FAlwt08qi0FP9t-gxC8WVoJl5I_tw7hBepa-zoG8UBbLaEbji"/>
+</div>
+<div class="bg-surface-container-high p-8 rounded-xl">
+<span class="material-symbols-outlined text-primary mb-4">face_retouching_natural</span>
+<h5 class="font-bold mb-2">Mimik Analizi</h5>
+<p class="text-xs text-on-surface-variant">Duygusal zeka ve tepki kontrolü ölçümü.</p>
+</div>
+</div>
+<div class="space-y-4 pt-8">
+<div class="bg-surface-container-high p-8 rounded-xl">
+<span class="material-symbols-outlined text-secondary mb-4">terminal</span>
+<h5 class="font-bold mb-2">Kodlama Testleri</h5>
+<p class="text-xs text-on-surface-variant">Teknik mülakatlar için entegre IDE.</p>
+</div>
+<div class="bg-surface-container-high p-1 rounded-xl">
+<img class="w-full h-48 object-cover rounded-lg" data-alt="Clean lines of code on a dark monitor screen with subtle neon purple and pink syntax highlighting" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDTijI3cLr4Eo1KBOyMVlnSuHsu8L1a_hmW93Otx7aNqHUfSZJTBzl91VNGkFUOfcw7guzfUduOKYbwY7Rq3YixEof66nyEUCtO02OcVR_68g88-_O19d6pfgFyU4ptNWeK81uAfiXNzmNiIL0Yc5kV5eclkMK8by8wgKvvTIb7EnsmREtflraAuAlTLHE1RVRitb4-ZunKzFXZBcA3OBw-Ase7BIIU7gqjuRi1MecVGdH8A8y5lcb2DBE1RFVESmshEzlPjXq6mqL1"/>
+</div>
+</div>
+</div>
+</div>
+<div class="lg:w-1/2 order-1 lg:order-2">
+<h2 class="font-headline text-headline-sm font-bold text-secondary mb-4 tracking-wide uppercase">Özellikler</h2>
+<h3 class="font-headline text-5xl font-extrabold mb-8 leading-tight">Sizi her senaryoya hazırlayan güçlü araçlar.</h3>
+<ul class="space-y-8">
+<li class="flex gap-6 items-start">
+<div class="bg-primary/10 p-3 rounded-lg text-primary">
+<span class="material-symbols-outlined">video_stable</span>
+</div>
+<div>
+<h4 class="text-xl font-bold mb-1">Gelişmiş Video Analizi</h4>
+<p class="text-on-surface-variant">Ses tonunuzdaki değişimleri, duraklamaları ve "ııı" gibi dolgu kelimeleri tespit eder.</p>
+</div>
+</li>
+<li class="flex gap-6 items-start">
+<div class="bg-secondary/10 p-3 rounded-lg text-secondary">
+<span class="material-symbols-outlined">psychology_alt</span>
+</div>
+<div>
+<h4 class="text-xl font-bold mb-1">Davranışsal İçgörüler</h4>
+<p class="text-on-surface-variant">STAR tekniği kullanımınızı ve problem çözme yaklaşımınızı puanlar.</p>
+</div>
+</li>
+<li class="flex gap-6 items-start">
+<div class="bg-tertiary/10 p-3 rounded-lg text-tertiary">
+<span class="material-symbols-outlined">code</span>
+</div>
+<div>
+<h4 class="text-xl font-bold mb-1">Kodlama ve Teknik Zorluklar</h4>
+<p class="text-on-surface-variant">Gerçek dünya senaryolarıyla teknik yetkinliğinizi stres altında test edin.</p>
+</div>
+</li>
+</ul>
+</div>
+</div>
+</div>
+</section>
+<!-- CTA Section: Atmospheric Deep Dark -->
+<section class="py-28 px-8">
+<div class="container mx-auto max-w-5xl">
+<div class="bg-gradient-to-br from-surface-container-high to-surface p-12 md:p-20 rounded-3xl relative overflow-hidden border border-outline-variant/10">
+<div class="absolute top-0 right-0 w-96 h-96 bg-primary/20 rounded-full blur-[100px] -mr-48 -mt-48"></div>
+<div class="absolute bottom-0 left-0 w-72 h-72 bg-secondary/10 rounded-full blur-[80px] -ml-36 -mb-36"></div>
+<div class="relative z-10 text-center max-w-2xl mx-auto">
+<h2 class="font-headline text-4xl md:text-5xl font-extrabold mb-6">Mülakatlarda fark yaratmaya hazır mısınız?</h2>
+<p class="text-on-surface-variant text-lg mb-10">Hemen ücretsiz hesabınızı oluşturun ve ilk yapay zeka mülakatınıza bugün başlayın.</p>
+<div class="flex flex-col sm:flex-row gap-6 justify-center">
+<button class="bg-gradient-to-br from-primary to-primary-container text-on-primary font-bold px-12 py-5 rounded-md text-xl hover:scale-105 transition-all shadow-lg shadow-primary/20">
+                            Hemen Ücretsiz Dene
+                        </button>
+</div>
+<p class="mt-6 text-sm text-on-surface-variant opacity-60">Kredi kartı gerekmez. Sınırsız deneme imkanı.</p>
+</div>
+</div>
+</div>
+</section>
+<!-- Footer -->
+<footer class="bg-[#141313] border-t border-[#e5e2e1]/15">
+<div class="flex flex-col md:flex-row justify-between items-center px-12 py-10 w-full max-w-screen-2xl mx-auto">
+<div class="mb-6 md:mb-0">
+<div class="text-md font-bold text-[#e5e2e1] mb-2 font-headline">Yapay Zeka Mülakat</div>
+<p class="text-[#e5e2e1]/50 text-xs font-label">© 2024 Yapay Zeka Mülakat. Tüm hakları saklıdır.</p>
+</div>
+<div class="flex flex-wrap justify-center gap-8">
+<a class="text-[#e5e2e1]/50 hover:text-[#c0c1ff] transition-colors font-label text-sm" href="#">Gizlilik</a>
+<a class="text-[#e5e2e1]/50 hover:text-[#c0c1ff] transition-colors font-label text-sm" href="#">Kullanım Koşulları</a>
+<a class="text-[#e5e2e1]/50 hover:text-[#c0c1ff] transition-colors font-label text-sm" href="#">İletişim</a>
+</div>
+<div class="mt-6 md:mt-0 flex gap-4">
+<a class="w-10 h-10 flex items-center justify-center rounded-full bg-surface-container-high text-[#e5e2e1]/70 hover:text-primary transition-colors" href="#">
+<span class="material-symbols-outlined text-xl">share</span>
+</a>
+<a class="w-10 h-10 flex items-center justify-center rounded-full bg-surface-container-high text-[#e5e2e1]/70 hover:text-primary transition-colors" href="#">
+<span class="material-symbols-outlined text-xl">language</span>
+</a>
+</div>
+</div>
+</footer>
+</body></html>

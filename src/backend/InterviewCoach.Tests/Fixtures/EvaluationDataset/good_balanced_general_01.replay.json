@@ -1,0 +1,78 @@
+{
+  "version": 1,
+  "exportedAtUtc": "2026-01-10T12:00:00Z",
+  "session": {
+    "role": "Software Engineer",
+    "language": "en",
+    "mode": "realtime",
+    "settingsJson": "{\"mode\":\"realtime\",\"source\":\"evaluation\"}",
+    "createdAtUtc": "2026-01-10T11:59:00Z"
+  },
+  "metricEvents": [
+    {
+      "clientEventId": "12000000-0000-0000-0000-000000000001",
+      "tsMs": 0,
+      "source": "Vision",
+      "type": "vision_metrics_v1",
+      "payloadJson": "{\"eyeContact\":0.86,\"posture\":0.83,\"fidget\":0.14,\"headJitter\":0.12,\"eyeOpenness\":0.76}"
+    },
+    {
+      "clientEventId": "12000000-0000-0000-0000-000000000002",
+      "tsMs": 500,
+      "source": "Vision",
+      "type": "vision_metrics_v1",
+      "payloadJson": "{\"eyeContact\":0.84,\"posture\":0.82,\"fidget\":0.16,\"headJitter\":0.13,\"eyeOpenness\":0.75}"
+    },
+    {
+      "clientEventId": "12000000-0000-0000-0000-000000000003",
+      "tsMs": 1000,
+      "source": "Vision",
+      "type": "vision_metrics_v1",
+      "payloadJson": "{\"eyeContact\":0.87,\"posture\":0.81,\"fidget\":0.15,\"headJitter\":0.11,\"eyeOpenness\":0.77}"
+    },
+    {
+      "clientEventId": "12000000-0000-0000-0000-000000000004",
+      "tsMs": 1500,
+      "source": "Vision",
+      "type": "vision_metrics_v1",
+      "payloadJson": "{\"eyeContact\":0.85,\"posture\":0.84,\"fidget\":0.13,\"headJitter\":0.12,\"eyeOpenness\":0.78}"
+    },
+    {
+      "clientEventId": "12000000-0000-0000-0000-000000000005",
+      "tsMs": 2000,
+      "source": "Audio",
+      "type": "audio_metrics_v1",
+      "payloadJson": "{\"wpm\":142,\"filler\":1,\"pauseMs\":520}"
+    },
+    {
+      "clientEventId": "12000000-0000-0000-0000-000000000006",
+      "tsMs": 2500,
+      "source": "Audio",
+      "type": "audio_metrics_v1",
+      "payloadJson": "{\"wpm\":145,\"filler\":1,\"pauseMs\":500}"
+    },
+    {
+      "clientEventId": "12000000-0000-0000-0000-000000000007",
+      "tsMs": 3000,
+      "source": "Audio",
+      "type": "audio_metrics_v1",
+      "payloadJson": "{\"wpm\":140,\"filler\":1,\"pauseMs\":540}"
+    }
+  ],
+  "transcriptSegments": [
+    {
+      "clientSegmentId": "22000000-0000-0000-0000-000000000001",
+      "startMs": 0,
+      "endMs": 950,
+      "text": "I designed the API with clear ownership boundaries.",
+      "confidence": 0.93
+    },
+    {
+      "clientSegmentId": "22000000-0000-0000-0000-000000000002",
+      "startMs": 1000,
+      "endMs": 2100,
+      "text": "Then I improved reliability with retries and idempotency.",
+      "confidence": 0.92
+    }
+  ]
+}

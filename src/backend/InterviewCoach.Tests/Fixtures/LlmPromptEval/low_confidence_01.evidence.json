@@ -1,0 +1,91 @@
+{
+  "sessionId": "31000000-0000-0000-0000-000000000002",
+  "language": "en",
+  "highLevel": {
+    "durationMs": 42000,
+    "overallScore": 54,
+    "topIssues": [
+      {
+        "issue": "EyeContact",
+        "evidence": "Gaze often away from camera during key statements.",
+        "timeRangeMs": [7000, 18000]
+      },
+      {
+        "issue": "LongPauses",
+        "evidence": "Extended pauses before responding.",
+        "timeRangeMs": [20000, 31000]
+      }
+    ]
+  },
+  "signals": {
+    "vision": {
+      "eyeContactAvg": 0.33,
+      "postureAvg": 0.49,
+      "fidgetAvg": 0.24,
+      "headJitterAvg": 0.21
+    },
+    "audio": {
+      "wpmMedian": 116,
+      "fillerPerMin": 4.2,
+      "pauseMsPerMin": 2400
+    }
+  },
+  "worstWindows": [
+    {
+      "startMs": 6000,
+      "endMs": 14000,
+      "metrics": {
+        "eyeContact": 0.29,
+        "posture": 0.47,
+        "fidget": 0.20,
+        "headJitter": 0.19,
+        "wpm": 114,
+        "filler": 1,
+        "pauseMs": 1500
+      },
+      "reason": "low eye contact, off-range speaking rate, long pauses"
+    },
+    {
+      "startMs": 21000,
+      "endMs": 30000,
+      "metrics": {
+        "eyeContact": 0.34,
+        "posture": 0.50,
+        "fidget": 0.22,
+        "headJitter": 0.20,
+        "wpm": 118,
+        "filler": 2,
+        "pauseMs": 2000
+      },
+      "reason": "low eye contact, long pauses"
+    }
+  ],
+  "transcriptSlices": [
+    {
+      "startMs": 5800,
+      "endMs": 14200,
+      "text": "I usually take a moment before answering because I want to be precise."
+    },
+    {
+      "startMs": 20900,
+      "endMs": 30100,
+      "text": "My main contribution was coordinating teams and resolving communication blockers."
+    }
+  ],
+  "patterns": [
+    {
+      "type": "EyeContact",
+      "startMs": 7000,
+      "endMs": 17500,
+      "severity": 4,
+      "evidence": "Camera engagement below target threshold."
+    },
+    {
+      "type": "SpeakingRate",
+      "startMs": 19500,
+      "endMs": 30500,
+      "severity": 3,
+      "evidence": "Speech pace lower than target range."
+    }
+  ]
+}

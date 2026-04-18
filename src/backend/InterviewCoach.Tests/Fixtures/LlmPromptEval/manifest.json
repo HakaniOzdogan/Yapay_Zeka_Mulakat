@@ -1,0 +1,19 @@
+{
+  "cases": [
+    {
+      "caseId": "stress_case_01",
+      "evidenceFile": "stress_case_01.evidence.json",
+      "expectedFocus": ["audio", "vision"]
+    },
+    {
+      "caseId": "low_confidence_01",
+      "evidenceFile": "low_confidence_01.evidence.json",
+      "expectedFocus": ["audio", "vision", "structure"]
+    },
+    {
+      "caseId": "balanced_technical_01",
+      "evidenceFile": "balanced_technical_01.evidence.json",
+      "expectedFocus": ["content", "structure"]
+    }
+  ]
+}

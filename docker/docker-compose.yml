@@ -1,76 +1,94 @@
 services:
-  ollama:
-    image: ollama/ollama:latest
-    restart: unless-stopped
-    ports:
-      - "11434:11434"
-    volumes:
-      - ollama_data:/root/.ollama
-    networks:
-      - appnet
-
   postgres:
-    image: postgres:15
+    image: postgres:16
     restart: unless-stopped
     environment:
-      POSTGRES_USER: coach
-      POSTGRES_PASSWORD: coachpass
-      POSTGRES_DB: interviewcoach
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U coach -d interviewcoach"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
+      POSTGRES_USER: ${POSTGRES_USER:-coach}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-coachpass}
+      POSTGRES_DB: ${POSTGRES_DB:-interviewcoach}
     volumes:
       - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-coach} -d ${POSTGRES_DB:-interviewcoach}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
     ports:
-      - "5432:5432"
-    networks:
-      - appnet
+      - "${POSTGRES_PORT:-5432}:5432"
 
-  backend:
+  api:
     build:
       context: ../src/backend
       dockerfile: Dockerfile
+    restart: unless-stopped
     environment:
-      - ASPNETCORE_ENVIRONMENT=Development
-      - ConnectionStrings__Default=Host=postgres;Port=5432;Database=interviewcoach;Username=coach;Password=coachpass
-      - Llm__BaseUrl=http://ollama:11434
-      - Llm__Model=qwen2.5:7b-instruct
-      - Llm__Temperature=0.2
+      ASPNETCORE_URLS: http://+:8080
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__Default: Host=postgres;Port=5432;Database=${POSTGRES_DB:-interviewcoach};Username=${POSTGRES_USER:-coach};Password=${POSTGRES_PASSWORD:-coachpass}
+      Cors__AllowedOrigin: ${FRONTEND_ORIGIN:-http://localhost:5173}
+      Telemetry__Enabled: "false"
+      Llm__BaseUrl: http://ollama:11434
+      Llm__Model: ${LLM_MODEL:-qwen2.5:7b-instruct}
+      Llm__TimeoutSeconds: ${LLM_TIMEOUT_SECONDS:-60}
     depends_on:
       postgres:
         condition: service_healthy
-      ollama:
-        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/health/ready || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
     ports:
-      - "5000:8080"
-    networks:
-      - appnet
+      - "${API_PORT:-8080}:8080"
 
   frontend:
     build:
       context: ../src/frontend
       dockerfile: Dockerfile
+      args:
+        VITE_API_URL: ${VITE_API_URL:-http://localhost:8080/api}
+        VITE_SPEECH_URL: ${VITE_SPEECH_URL:-http://localhost:8000}
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost/ >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
     ports:
-      - "5173:5173"
-    networks:
-      - appnet
+      - "${FRONTEND_PORT:-5173}:80"
+
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    volumes:
+      - ollama_data:/root/.ollama
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list >/dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+    ports:
+      - "${OLLAMA_PORT:-11434}:11434"
 
   speech-service:
     build:
       context: ../services/speech-service
       dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      MODEL: ${SPEECH_MODEL:-tiny}
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health').read()\""]
+      interval: 10s
+      timeout: 5s
+      retries: 10
     ports:
-      - "8000:8000"
-    networks:
-      - appnet
+      - "${SPEECH_PORT:-8000}:8000"
 
 volumes:
   pgdata:
   ollama_data:
-
-networks:
-  appnet:
-    driver: bridge
-

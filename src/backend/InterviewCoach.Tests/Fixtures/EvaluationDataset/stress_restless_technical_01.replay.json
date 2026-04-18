@@ -1,0 +1,85 @@
+{
+  "version": 1,
+  "exportedAtUtc": "2026-01-10T10:00:00Z",
+  "session": {
+    "role": "Backend Engineer",
+    "language": "en",
+    "mode": "realtime",
+    "settingsJson": "{\"mode\":\"realtime\",\"source\":\"evaluation\"}",
+    "createdAtUtc": "2026-01-10T09:59:00Z"
+  },
+  "metricEvents": [
+    {
+      "clientEventId": "10000000-0000-0000-0000-000000000001",
+      "tsMs": 0,
+      "source": "Vision",
+      "type": "vision_metrics_v1",
+      "payloadJson": "{\"eyeContact\":0.42,\"posture\":0.45,\"fidget\":0.78,\"headJitter\":0.70,\"eyeOpenness\":0.55}"
+    },
+    {
+      "clientEventId": "10000000-0000-0000-0000-000000000002",
+      "tsMs": 500,
+      "source": "Vision",
+      "type": "vision_metrics_v1",
+      "payloadJson": "{\"eyeContact\":0.40,\"posture\":0.43,\"fidget\":0.80,\"headJitter\":0.74,\"eyeOpenness\":0.54}"
+    },
+    {
+      "clientEventId": "10000000-0000-0000-0000-000000000003",
+      "tsMs": 1000,
+      "source": "Vision",
+      "type": "vision_metrics_v1",
+      "payloadJson": "{\"eyeContact\":0.44,\"posture\":0.47,\"fidget\":0.76,\"headJitter\":0.69,\"eyeOpenness\":0.56}"
+    },
+    {
+      "clientEventId": "10000000-0000-0000-0000-000000000004",
+      "tsMs": 1500,
+      "source": "Vision",
+      "type": "vision_metrics_v1",
+      "payloadJson": "{\"eyeContact\":0.41,\"posture\":0.44,\"fidget\":0.82,\"headJitter\":0.73,\"eyeOpenness\":0.53}"
+    },
+    {
+      "clientEventId": "10000000-0000-0000-0000-000000000005",
+      "tsMs": 2000,
+      "source": "Audio",
+      "type": "audio_metrics_v1",
+      "payloadJson": "{\"wpm\":148,\"filler\":2,\"pauseMs\":820}"
+    },
+    {
+      "clientEventId": "10000000-0000-0000-0000-000000000006",
+      "tsMs": 2500,
+      "source": "Audio",
+      "type": "audio_metrics_v1",
+      "payloadJson": "{\"wpm\":152,\"filler\":3,\"pauseMs\":900}"
+    },
+    {
+      "clientEventId": "10000000-0000-0000-0000-000000000007",
+      "tsMs": 3000,
+      "source": "Audio",
+      "type": "audio_metrics_v1",
+      "payloadJson": "{\"wpm\":150,\"filler\":2,\"pauseMs\":860}"
+    },
+    {
+      "clientEventId": "10000000-0000-0000-0000-000000000008",
+      "tsMs": 3500,
+      "source": "Audio",
+      "type": "audio_metrics_v1",
+      "payloadJson": "{\"wpm\":149,\"filler\":2,\"pauseMs\":840}"
+    }
+  ],
+  "transcriptSegments": [
+    {
+      "clientSegmentId": "20000000-0000-0000-0000-000000000001",
+      "startMs": 0,
+      "endMs": 1200,
+      "text": "I think we can maybe start with the service boundaries.",
+      "confidence": 0.9
+    },
+    {
+      "clientSegmentId": "20000000-0000-0000-0000-000000000002",
+      "startMs": 1300,
+      "endMs": 2400,
+      "text": "Then we would optimize queries and reduce lock contention.",
+      "confidence": 0.89
+    }
+  ]
+}

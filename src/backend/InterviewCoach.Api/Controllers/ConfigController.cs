@@ -8,9 +8,9 @@ namespace InterviewCoach.Api.Controllers;
 [Route("api/[controller]")]
 public class ConfigController : ControllerBase
 {
-    private readonly ApplicationOptions _options;
+    private readonly ScoringProfilesOptions _options;
 
-    public ConfigController(IOptions<ApplicationOptions> options)
+    public ConfigController(IOptions<ScoringProfilesOptions> options)
     {
         _options = options.Value;
     }
@@ -20,7 +20,7 @@ public class ConfigController : ControllerBase
     {
         return Ok(new
         {
-            scoring = _options.ScoringConfig
+            scoringProfiles = _options
         });
     }
 }

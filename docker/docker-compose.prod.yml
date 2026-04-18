@@ -1,0 +1,122 @@
+services:
+  nginx:
+    image: nginx:1.27-alpine
+    restart: always
+    depends_on:
+      api:
+        condition: service_healthy
+      frontend:
+        condition: service_healthy
+    ports:
+      - "${PUBLIC_HTTP_PORT:-80}:80"
+      - "${PUBLIC_HTTPS_PORT:-443}:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/certs:/etc/nginx/certs:ro
+      - nginx_logs:/var/log/nginx
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  api:
+    restart: always
+    env_file:
+      - path: ./.env.production
+        required: false
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_URLS: http://+:8080
+      ConnectionStrings__Default: Host=postgres;Port=5432;Database=${POSTGRES_DB:-interviewcoach};Username=${POSTGRES_USER:-coach};Password=${POSTGRES_PASSWORD:-change-me}
+      Cors__AllowedOrigin: ${CORS_ALLOWED_ORIGIN:-https://app.example.com}
+      Auth__JwtIssuer: ${AUTH_JWT_ISSUER:-InterviewCoach}
+      Auth__JwtAudience: ${AUTH_JWT_AUDIENCE:-InterviewCoachClient}
+      Auth__JwtKey: ${AUTH_JWT_KEY:-change-this-jwt-key-in-production}
+      Auth__AccessTokenMinutes: ${AUTH_ACCESS_TOKEN_MINUTES:-120}
+      Llm__BaseUrl: ${LLM_BASE_URL:-http://ollama:11434}
+      Llm__Model: ${LLM_MODEL:-qwen2.5:7b-instruct}
+      Llm__TimeoutSeconds: ${LLM_TIMEOUT_SECONDS:-60}
+      Telemetry__Enabled: ${TELEMETRY_ENABLED:-false}
+      Telemetry__OtlpEndpoint: ${TELEMETRY_OTLP_ENDPOINT:-}
+      Privacy__RedactTranscripts: ${PRIVACY_REDACT_TRANSCRIPTS:-true}
+      Privacy__RedactOnIngest: ${PRIVACY_REDACT_ON_INGEST:-true}
+      Privacy__StoreOriginalTranscripts: ${PRIVACY_STORE_ORIGINAL_TRANSCRIPTS:-false}
+      Retention__Enabled: ${RETENTION_ENABLED:-true}
+      Retention__DeleteAfterDays: ${RETENTION_DELETE_AFTER_DAYS:-30}
+      Retention__KeepSummariesOnlyAfterDays: ${RETENTION_KEEP_SUMMARIES_ONLY_AFTER_DAYS:-7}
+      Retention__RunHourUtc: ${RETENTION_RUN_HOUR_UTC:-3}
+    ports: !reset []
+    expose:
+      - "8080"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  frontend:
+    restart: always
+    env_file:
+      - path: ./.env.production
+        required: false
+    build:
+      args:
+        VITE_API_URL: ${VITE_API_URL:-/api}
+        VITE_SPEECH_URL: ${VITE_SPEECH_URL:-/speech}
+    ports: !reset []
+    expose:
+      - "80"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  postgres:
+    restart: always
+    env_file:
+      - path: ./.env.production
+        required: false
+    ports: !reset []
+    volumes:
+      - pgdata_prod:/var/lib/postgresql/data
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  ollama:
+    profiles: ["ollama"]
+    restart: always
+    ports: !reset []
+    expose:
+      - "11434"
+    volumes:
+      - ollama_data_prod:/root/.ollama
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  speech-service:
+    profiles: ["speech"]
+    restart: always
+    env_file:
+      - path: ./.env.production
+        required: false
+    ports: !reset []
+    expose:
+      - "8000"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+volumes:
+  pgdata_prod:
+  ollama_data_prod:
+  nginx_logs:

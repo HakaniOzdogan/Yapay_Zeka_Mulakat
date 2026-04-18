@@ -1,0 +1,261 @@
+.admin-batch-section {
+  display: grid;
+  gap: 14px;
+}
+
+.admin-batch-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.admin-batch-column {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(9, 22, 56, 0.58);
+  padding: 12px;
+}
+
+.admin-batch-textarea {
+  width: 100%;
+  min-height: 92px;
+  max-height: 220px;
+  resize: vertical;
+  border: 1px solid rgba(132, 160, 220, 0.36);
+  border-radius: 10px;
+  background: rgba(9, 18, 44, 0.72);
+  color: var(--ink);
+  font-family: inherit;
+  padding: 10px 12px;
+}
+
+.admin-batch-subtitle {
+  color: #d7e7ff;
+  font-size: 0.9em;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.admin-batch-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.admin-batch-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  color: #d7e7ff;
+  font-size: 0.9em;
+}
+
+.admin-batch-checkbox input {
+  width: auto;
+}
+
+.admin-batch-checkline {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.admin-batch-row-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.admin-batch-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.admin-batch-jobs-list {
+  display: grid;
+  gap: 8px;
+  max-height: 420px;
+  overflow-y: auto;
+}
+
+.admin-batch-job-card {
+  text-align: left;
+  border: 1px solid rgba(125, 178, 255, 0.32);
+  border-radius: 10px;
+  background: rgba(7, 18, 46, 0.82);
+  color: #d9e9ff;
+  padding: 10px;
+  cursor: pointer;
+}
+
+.admin-batch-job-card.selected {
+  border-color: rgba(95, 197, 255, 0.75);
+  box-shadow: 0 0 0 1px rgba(95, 197, 255, 0.35);
+}
+
+.admin-batch-job-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.admin-batch-id {
+  font-family: monospace;
+  font-size: 0.82em;
+}
+
+.admin-batch-status {
+  font-size: 0.72em;
+  border-radius: 999px;
+  padding: 3px 7px;
+  border: 1px solid rgba(121, 168, 240, 0.45);
+  color: #cde2ff;
+  text-transform: uppercase;
+}
+
+.admin-batch-status.status-completed {
+  border-color: rgba(52, 211, 153, 0.55);
+  color: #b8f5de;
+}
+
+.admin-batch-status.status-failed {
+  border-color: rgba(239, 68, 68, 0.55);
+  color: #fecaca;
+}
+
+.admin-batch-status.status-running,
+.admin-batch-status.status-queued {
+  border-color: rgba(245, 158, 11, 0.55);
+  color: #fde68a;
+}
+
+.admin-batch-status.status-canceled {
+  border-color: rgba(148, 163, 184, 0.55);
+  color: #cbd5e1;
+}
+
+.admin-batch-job-card-meta {
+  font-size: 0.8em;
+  color: #9fb7dc;
+  margin: 6px 0;
+}
+
+.admin-batch-job-card-counters {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 0.78em;
+}
+
+.admin-batch-progress-wrap {
+  margin-top: 8px;
+  height: 8px;
+  background: rgba(148, 163, 184, 0.28);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.admin-batch-progress-wrap.large {
+  height: 10px;
+  margin-bottom: 8px;
+}
+
+.admin-batch-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #34d399, #60a5fa);
+}
+
+.admin-batch-details {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(9, 22, 56, 0.58);
+  padding: 12px;
+}
+
+.admin-batch-details-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 14px;
+}
+
+.admin-batch-json-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.admin-batch-json-grid pre {
+  margin: 0;
+  border-radius: 8px;
+  border: 1px solid rgba(125, 178, 255, 0.28);
+  background: rgba(7, 18, 46, 0.82);
+  color: #d9e9ff;
+  font-size: 0.75em;
+  line-height: 1.5;
+  padding: 8px;
+  overflow: auto;
+  max-height: 180px;
+}
+
+.admin-batch-items {
+  margin-top: 12px;
+}
+
+.admin-batch-table-wrap {
+  overflow-x: auto;
+}
+
+.admin-batch-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.admin-batch-table th,
+.admin-batch-table td {
+  border-bottom: 1px solid rgba(125, 178, 255, 0.2);
+  padding: 8px 6px;
+  text-align: left;
+  font-size: 0.84em;
+}
+
+.admin-batch-error-cell {
+  max-width: 320px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.admin-batch-pagination {
+  margin-top: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+@media (max-width: 768px) {
+  .admin-batch-grid,
+  .admin-batch-form-grid,
+  .admin-batch-details-grid,
+  .admin-batch-json-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-batch-row-title {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .admin-batch-pagination {
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+}

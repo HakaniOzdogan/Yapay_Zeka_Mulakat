@@ -1,0 +1,45 @@
+{
+  "language": "en",
+  "highLevel": {
+    "durationMs": 30000,
+    "overallScore": 67,
+    "topIssues": []
+  },
+  "signals": {
+    "vision": {
+      "eyeContactAvg": 0.8,
+      "postureAvg": 0.75,
+      "fidgetAvg": 0.2,
+      "headJitterAvg": 0.1
+    },
+    "audio": {
+      "wpmMedian": 140,
+      "fillerPerMin": 2,
+      "pauseMsPerMin": 800
+    }
+  },
+  "worstWindows": [
+    {
+      "startMs": 0,
+      "endMs": 30000,
+      "metrics": {
+        "eyeContact": 0.8,
+        "posture": 0.75,
+        "fidget": 0.2,
+        "headJitter": 0.1,
+        "wpm": 140,
+        "filler": 1,
+        "pauseMs": 400
+      },
+      "reason": "composite metric decline"
+    }
+  ],
+  "transcriptSlices": [
+    {
+      "startMs": 0,
+      "endMs": 2300,
+      "text": "hello there i am ready"
+    }
+  ],
+  "patterns": []
+}

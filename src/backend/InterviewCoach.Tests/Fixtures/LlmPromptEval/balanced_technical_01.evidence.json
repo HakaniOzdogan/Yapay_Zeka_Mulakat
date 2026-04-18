@@ -1,0 +1,65 @@
+{
+  "sessionId": "31000000-0000-0000-0000-000000000003",
+  "language": "en",
+  "highLevel": {
+    "durationMs": 39000,
+    "overallScore": 78,
+    "topIssues": [
+      {
+        "issue": "Structure",
+        "evidence": "Answers are mostly strong but sometimes jump between points.",
+        "timeRangeMs": [12000, 18000]
+      }
+    ]
+  },
+  "signals": {
+    "vision": {
+      "eyeContactAvg": 0.82,
+      "postureAvg": 0.80,
+      "fidgetAvg": 0.16,
+      "headJitterAvg": 0.14
+    },
+    "audio": {
+      "wpmMedian": 143,
+      "fillerPerMin": 2.1,
+      "pauseMsPerMin": 820
+    }
+  },
+  "worstWindows": [
+    {
+      "startMs": 11000,
+      "endMs": 17500,
+      "metrics": {
+        "eyeContact": 0.77,
+        "posture": 0.76,
+        "fidget": 0.19,
+        "headJitter": 0.17,
+        "wpm": 146,
+        "filler": 2,
+        "pauseMs": 760
+      },
+      "reason": "minor structure drift with light filler increase"
+    }
+  ],
+  "transcriptSlices": [
+    {
+      "startMs": 10800,
+      "endMs": 18000,
+      "text": "I started with the database bottleneck, then moved to cache invalidation and request fan-out control."
+    },
+    {
+      "startMs": 22000,
+      "endMs": 30000,
+      "text": "The final rollout used canary deployment and metric guardrails for safe migration."
+    }
+  ],
+  "patterns": [
+    {
+      "type": "FillerWords",
+      "startMs": 12000,
+      "endMs": 17000,
+      "severity": 2,
+      "evidence": "Small filler increase during architecture explanation."
+    }
+  ]
+}

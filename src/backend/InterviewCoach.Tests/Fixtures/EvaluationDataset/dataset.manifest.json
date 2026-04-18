@@ -1,0 +1,21 @@
+{
+  "datasetName": "baseline-eval-v1",
+  "version": 1,
+  "cases": [
+    {
+      "caseId": "stress_restless_technical_01",
+      "replayFile": "stress_restless_technical_01.replay.json",
+      "labelFile": "stress_restless_technical_01.label.json"
+    },
+    {
+      "caseId": "low_confidence_pauses_hr_01",
+      "replayFile": "low_confidence_pauses_hr_01.replay.json",
+      "labelFile": "low_confidence_pauses_hr_01.label.json"
+    },
+    {
+      "caseId": "good_balanced_general_01",
+      "replayFile": "good_balanced_general_01.replay.json",
+      "labelFile": "good_balanced_general_01.label.json"
+    }
+  ]
+}

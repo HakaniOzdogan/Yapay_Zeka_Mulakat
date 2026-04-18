@@ -1,187 +1,90 @@
-name: CI/CD Pipeline
+name: CI
 
 on:
   push:
-    branches: [ main, develop ]
   pull_request:
-    branches: [ main, develop ]
 
 jobs:
-  backend-tests:
+  backend:
+    name: Backend Build and Tests
     runs-on: ubuntu-latest
-    name: Backend Unit Tests (.NET 8)
-    
+
     steps:
-      - uses: actions/checkout@v4
-      
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Setup .NET 8
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
-      
-      - name: Restore dependencies
-        run: dotnet restore src/backend/Yapay_Zeka_Mulakat.sln
-      
-      - name: Build Backend
-        run: dotnet build src/backend/Yapay_Zeka_Mulakat.sln --configuration Release --no-restore
-      
-      - name: Run Backend Tests
-        run: dotnet test src/backend/InterviewCoach.Api.Tests/InterviewCoach.Api.Tests.csproj --configuration Release --no-build --verbosity normal --logger "trx;LogFileName=test-results.trx"
-      
-      - name: Upload Test Results
+          cache: true
+          cache-dependency-path: src/backend/**/*.csproj
+
+      - name: Restore
+        working-directory: src/backend
+        run: dotnet restore InterviewCoach.sln
+
+      - name: Build
+        working-directory: src/backend
+        run: dotnet build InterviewCoach.sln --configuration Release --no-restore
+
+      - name: Test (TRX)
+        working-directory: src/backend
+        run: dotnet test InterviewCoach.sln --configuration Release --no-build --logger "trx;LogFileName=test_results.trx" --results-directory TestResults
+
+      - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: backend-test-results
-          path: '**/test-results.trx'
+          path: |
+            src/backend/TestResults/**/*.trx
+            src/backend/**/TestResults/**/*.trx
+          if-no-files-found: warn
 
-  frontend-build:
+  frontend:
+    name: Frontend Build
     runs-on: ubuntu-latest
-    name: Frontend Build & Lint
-    
+
     steps:
-      - uses: actions/checkout@v4
-      
-      - name: Setup Node.js 18
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '18.x'
-          cache: 'npm'
+          node-version: 'lts/*'
+          cache: npm
           cache-dependency-path: src/frontend/package-lock.json
-      
-      - name: Install Frontend Dependencies
+
+      - name: Install dependencies
         working-directory: src/frontend
         run: npm ci
-      
-      - name: Lint Frontend
-        working-directory: src/frontend
-        run: npm run lint 2>&1 || true
-      
-      - name: Build Frontend
+
+      - name: Build
         working-directory: src/frontend
         run: npm run build
-      
-      - name: Upload Build Artifacts
-        uses: actions/upload-artifact@v3
-        with:
-          name: frontend-dist
-          path: src/frontend/dist/
 
-  docker-build:
+  speech_service:
+    name: Speech Service Check
     runs-on: ubuntu-latest
-    name: Docker Build
-    needs: [backend-tests, frontend-build]
-    
+    if: ${{ hashFiles('services/speech-service/requirements.txt') != '' }}
+
     steps:
-      - uses: actions/checkout@v4
-      
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-      
-      - name: Build Docker Images
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        working-directory: services/speech-service
+        run: pip install -r requirements.txt
+
+      - name: Validate service imports
+        working-directory: services/speech-service
         run: |
-          docker compose -f docker/docker-compose.yml build --no-cache
-        continue-on-error: true
-
-  code-quality:
-    runs-on: ubuntu-latest
-    name: Code Quality Checks
-    
-    steps:
-      - uses: actions/checkout@v4
-      
-      - name: Setup .NET 8
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '8.0.x'
-      
-      - name: Restore Backend
-        run: dotnet restore src/backend/Yapay_Zeka_Mulakat.sln
-      
-      - name: Build Backend Release
-        run: dotnet build src/backend/Yapay_Zeka_Mulakat.sln --configuration Release --no-restore
-      
-      - name: Setup Node.js 18
-        uses: actions/setup-node@v4
-        with:
-          node-version: '18.x'
-          cache: 'npm'
-          cache-dependency-path: src/frontend/package-lock.json
-      
-      - name: Install Frontend Dependencies
-        working-directory: src/frontend
-        run: npm ci
-      
-      - name: Check Frontend Build
-        working-directory: src/frontend
-        run: npm run build > /dev/null 2>&1
-
-  security-scan:
-    runs-on: ubuntu-latest
-    name: Security Vulnerability Scan
-    
-    steps:
-      - uses: actions/checkout@v4
-      
-      - name: Run Trivy File System Scan
-        uses: aquasecurity/trivy-action@master
-        with:
-          scan-type: 'fs'
-          scan-ref: '.'
-          format: 'sarif'
-          output: 'trivy-results.sarif'
-        continue-on-error: true
-      
-      - name: Upload Trivy Results
-        uses: github/codeql-action/upload-sarif@v2
-        with:
-          sarif_file: 'trivy-results.sarif'
-        continue-on-error: true
-
-  documentation:
-    runs-on: ubuntu-latest
-    name: Documentation Check
-    
-    steps:
-      - uses: actions/checkout@v4
-      
-      - name: Check Architecture Docs Exist
-        run: |
-          if [ ! -f "docs/architecture.md" ]; then
-            echo "❌ Architecture documentation missing"
-            exit 1
-          fi
-          echo "✅ Architecture documentation found"
-      
-      - name: Check README Exists
-        run: |
-          if [ ! -f "README.md" ]; then
-            echo "❌ README missing"
-            exit 1
-          fi
-          echo "✅ README found"
-
-  final-status:
-    runs-on: ubuntu-latest
-    name: CI Pipeline Status
-    needs: [backend-tests, frontend-build, docker-build, code-quality]
-    
-    if: always()
-    
-    steps:
-      - name: Check All Tests Passed
-        run: |
-          if [ "${{ needs.backend-tests.result }}" = "failure" ]; then
-            echo "❌ Backend tests failed"
-            exit 1
-          fi
-          if [ "${{ needs.frontend-build.result }}" = "failure" ]; then
-            echo "❌ Frontend build failed"
-            exit 1
-          fi
-          if [ "${{ needs.code-quality.result }}" = "failure" ]; then
-            echo "❌ Code quality checks failed"
-            exit 1
-          fi
-          echo "✅ All CI checks passed!"
-
+          python -m py_compile app/main.py
+          python -c "import fastapi, uvicorn"

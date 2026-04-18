@@ -1,0 +1,39 @@
+{
+  "session": {
+    "role": "Software Engineer",
+    "language": "en",
+    "mode": null,
+    "status": "Completed"
+  },
+  "scoreCard": {
+    "eyeContact": 87,
+    "posture": 81,
+    "fidget": null,
+    "speakingRate": 50,
+    "fillerWords": 50,
+    "overall": 67,
+    "createdAt": null
+  },
+  "patterns": [],
+  "derivedSeries": {
+    "eyeContact": [],
+    "posture": [],
+    "fidget": [],
+    "headJitter": [],
+    "wpm": [],
+    "filler": [],
+    "pauseMs": []
+  },
+  "transcript": [
+    {
+      "startMs": 0,
+      "endMs": 1000,
+      "text": "hello there"
+    },
+    {
+      "startMs": 1500,
+      "endMs": 2300,
+      "text": "i am ready"
+    }
+  ]
+}

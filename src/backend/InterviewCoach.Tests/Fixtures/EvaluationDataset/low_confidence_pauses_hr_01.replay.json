@@ -1,0 +1,78 @@
+{
+  "version": 1,
+  "exportedAtUtc": "2026-01-10T11:00:00Z",
+  "session": {
+    "role": "People Manager",
+    "language": "en",
+    "mode": "realtime",
+    "settingsJson": "{\"mode\":\"realtime\",\"source\":\"evaluation\"}",
+    "createdAtUtc": "2026-01-10T10:59:00Z"
+  },
+  "metricEvents": [
+    {
+      "clientEventId": "11000000-0000-0000-0000-000000000001",
+      "tsMs": 0,
+      "source": "Vision",
+      "type": "vision_metrics_v1",
+      "payloadJson": "{\"eyeContact\":0.30,\"posture\":0.42,\"fidget\":0.22,\"headJitter\":0.18,\"eyeOpenness\":0.50}"
+    },
+    {
+      "clientEventId": "11000000-0000-0000-0000-000000000002",
+      "tsMs": 500,
+      "source": "Vision",
+      "type": "vision_metrics_v1",
+      "payloadJson": "{\"eyeContact\":0.32,\"posture\":0.40,\"fidget\":0.24,\"headJitter\":0.20,\"eyeOpenness\":0.51}"
+    },
+    {
+      "clientEventId": "11000000-0000-0000-0000-000000000003",
+      "tsMs": 1000,
+      "source": "Vision",
+      "type": "vision_metrics_v1",
+      "payloadJson": "{\"eyeContact\":0.28,\"posture\":0.41,\"fidget\":0.20,\"headJitter\":0.19,\"eyeOpenness\":0.49}"
+    },
+    {
+      "clientEventId": "11000000-0000-0000-0000-000000000004",
+      "tsMs": 1500,
+      "source": "Vision",
+      "type": "vision_metrics_v1",
+      "payloadJson": "{\"eyeContact\":0.31,\"posture\":0.43,\"fidget\":0.23,\"headJitter\":0.17,\"eyeOpenness\":0.50}"
+    },
+    {
+      "clientEventId": "11000000-0000-0000-0000-000000000005",
+      "tsMs": 2000,
+      "source": "Audio",
+      "type": "audio_metrics_v1",
+      "payloadJson": "{\"wpm\":118,\"filler\":1,\"pauseMs\":1800}"
+    },
+    {
+      "clientEventId": "11000000-0000-0000-0000-000000000006",
+      "tsMs": 2500,
+      "source": "Audio",
+      "type": "audio_metrics_v1",
+      "payloadJson": "{\"wpm\":116,\"filler\":1,\"pauseMs\":1900}"
+    },
+    {
+      "clientEventId": "11000000-0000-0000-0000-000000000007",
+      "tsMs": 3000,
+      "source": "Audio",
+      "type": "audio_metrics_v1",
+      "payloadJson": "{\"wpm\":120,\"filler\":1,\"pauseMs\":1700}"
+    }
+  ],
+  "transcriptSegments": [
+    {
+      "clientSegmentId": "21000000-0000-0000-0000-000000000001",
+      "startMs": 0,
+      "endMs": 900,
+      "text": "I worked on mentoring and team communication initiatives.",
+      "confidence": 0.9
+    },
+    {
+      "clientSegmentId": "21000000-0000-0000-0000-000000000002",
+      "startMs": 1200,
+      "endMs": 2500,
+      "text": "I usually pause before difficult questions to think carefully.",
+      "confidence": 0.88
+    }
+  ]
+}

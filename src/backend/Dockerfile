@@ -1,23 +1,26 @@
 FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
 WORKDIR /src
 
-# Copy solution and all projects
 COPY InterviewCoach.sln ./
-COPY InterviewCoach.Domain/ ./InterviewCoach.Domain/
-COPY InterviewCoach.Application/ ./InterviewCoach.Application/
-COPY InterviewCoach.Infrastructure/ ./InterviewCoach.Infrastructure/
-COPY InterviewCoach.Api/ ./InterviewCoach.Api/
-COPY InterviewCoach.Api.Tests/ ./InterviewCoach.Api.Tests/
+COPY InterviewCoach.Api/InterviewCoach.Api.csproj InterviewCoach.Api/
+COPY InterviewCoach.Application/InterviewCoach.Application.csproj InterviewCoach.Application/
+COPY InterviewCoach.Domain/InterviewCoach.Domain.csproj InterviewCoach.Domain/
+COPY InterviewCoach.Infrastructure/InterviewCoach.Infrastructure.csproj InterviewCoach.Infrastructure/
 
-# Restore dependencies 
-RUN dotnet restore
+RUN dotnet restore InterviewCoach.Api/InterviewCoach.Api.csproj
 
-# Build Debug (devam etmesi için || true ekledim)
-RUN dotnet build -c Debug 2>&1 || true
+COPY . .
+RUN dotnet publish InterviewCoach.Api/InterviewCoach.Api.csproj -c Release -o /app/publish /p:UseAppHost=false
 
-FROM mcr.microsoft.com/dotnet/sdk:8.0
+FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS runtime
 WORKDIR /app
-COPY --from=build /src/InterviewCoach.Api/bin/Debug/net8.0 .
 
-EXPOSE 80
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=build /app/publish .
+
+EXPOSE 8080
+ENV ASPNETCORE_URLS=http://+:8080
 ENTRYPOINT ["dotnet", "InterviewCoach.Api.dll"]

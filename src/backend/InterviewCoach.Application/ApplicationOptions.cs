@@ -1,20 +1,65 @@
-// Placeholder for application services
 namespace InterviewCoach.Application;
 
-public class ApplicationOptions
+public class ScoringProfilesOptions
 {
-    /// <summary>
-    /// Scoring thresholds and configuration
-    /// </summary>
-    public ScoringConfig ScoringConfig { get; set; } = new();
+    public string DefaultProfile { get; set; } = "general";
+
+    public Dictionary<string, ScoringProfile> Profiles { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+    public bool TryGetProfile(string? profileName, out ScoringProfile profile)
+    {
+        var requested = string.IsNullOrWhiteSpace(profileName) ? DefaultProfile : profileName.Trim();
+        return Profiles.TryGetValue(requested, out profile!);
+    }
+
+    public string[] GetProfileNames()
+    {
+        return Profiles.Keys.OrderBy(x => x, StringComparer.OrdinalIgnoreCase).ToArray();
+    }
+
+    public ScoringProfile GetDefaultProfile()
+    {
+        if (Profiles.TryGetValue(DefaultProfile, out var profile))
+            return profile;
+
+        throw new InvalidOperationException($"Default scoring profile '{DefaultProfile}' is missing.");
+    }
 }
 
-public class ScoringConfig
+public class ScoringProfile
 {
-    public double EyeContactGoodRatio { get; set; } = 0.7; // 70% of time looking forward
-    public double HeadStabilityMaxStd { get; set; } = 15.0; // degrees
-    public int WpmIdealMin { get; set; } = 120;
-    public int WpmIdealMax { get; set; } = 160;
-    public int FillerPerMinMax { get; set; } = 3; // max filler words per minute
-    public double PostureLeanMax { get; set; } = 10.0; // degrees forward lean
+    public ScoringWeights Weights { get; set; } = new();
+    public ScoringThresholds Thresholds { get; set; } = new();
+}
+
+public class ScoringWeights
+{
+    public double EyeContact { get; set; }
+    public double Posture { get; set; }
+    public double Fidget { get; set; }
+    public double SpeakingRate { get; set; }
+    public double FillerWords { get; set; }
+
+    public double Sum => EyeContact + Posture + Fidget + SpeakingRate + FillerWords;
+}
+
+public class ScoringThresholds
+{
+    public int SpeakingRateIdealMinWpm { get; set; } = 120;
+    public int SpeakingRateIdealMaxWpm { get; set; } = 170;
+    public int FillerPerMinMax { get; set; } = 6;
+    public double EyeContactMin { get; set; } = 0.55;
+    public double HeadJitterMax { get; set; } = 0.35;
+    public double FidgetMax { get; set; } = 0.40;
+    public double PostureMin { get; set; } = 0.60;
+}
+
+public class AuthOptions
+{
+    public string JwtIssuer { get; set; } = "InterviewCoach";
+    public string JwtAudience { get; set; } = "InterviewCoach.Client";
+    public string JwtKey { get; set; } = "dev-only-change-this-key-to-a-long-random-secret";
+    public int AccessTokenMinutes { get; set; } = 120;
+    public string? SeedAdminEmail { get; set; }
+    public string? SeedAdminPassword { get; set; }
 }

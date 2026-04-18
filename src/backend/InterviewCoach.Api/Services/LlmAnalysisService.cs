@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using Microsoft.Extensions.Options;
 
 namespace InterviewCoach.Api.Services;
 
@@ -17,11 +18,11 @@ public class OllamaLlmAnalysisService : ILlmAnalysisService
     public OllamaLlmAnalysisService(
         HttpClient httpClient,
         ILogger<OllamaLlmAnalysisService> logger,
-        IConfiguration configuration)
+        IOptions<LlmOptions> llmOptions)
     {
         _httpClient = httpClient;
         _logger = logger;
-        _options = configuration.GetSection("Llm").Get<LlmOptions>() ?? new LlmOptions();
+        _options = llmOptions.Value;
     }
 
     public async Task<LiveAnalysisResult> AnalyzeLiveWindowAsync(LiveAnalysisInput input, CancellationToken cancellationToken = default)
@@ -30,7 +31,7 @@ public class OllamaLlmAnalysisService : ILlmAnalysisService
         var requestBody = JsonSerializer.Serialize(payload);
         using var content = new StringContent(requestBody, Encoding.UTF8, "application/json");
 
-        using var response = await _httpClient.PostAsync($"{_options.BaseUrl.TrimEnd('/')}/api/chat", content, cancellationToken);
+        using var response = await _httpClient.PostAsync("/api/chat", content, cancellationToken);
         var body = await response.Content.ReadAsStringAsync(cancellationToken);
         if (!response.IsSuccessStatusCode)
         {
@@ -204,7 +205,30 @@ public class LlmOptions
 {
     public string BaseUrl { get; set; } = "http://localhost:11434";
     public string Model { get; set; } = "qwen2.5:7b-instruct";
+    public List<string> FallbackModels { get; set; } = [];
+    public int TimeoutSeconds { get; set; } = 60;
     public float Temperature { get; set; } = 0.2f;
+    public string PromptVersionCoach { get; set; } = "coach_v1";
+    public LlmRetryOptions Retry { get; set; } = new();
+    public LlmFallbackOptions Fallback { get; set; } = new();
+}
+
+public class LlmRetryOptions
+{
+    public int MaxAttemptsPrimary { get; set; } = 2;
+    public bool RetryOnInvalidJson { get; set; } = true;
+    public bool RetryOnTimeout { get; set; } = true;
+    public bool RetryOnHttp5xx { get; set; } = true;
+    public List<int> BackoffMs { get; set; } = [500, 1000];
+}
+
+public class LlmFallbackOptions
+{
+    public bool Enabled { get; set; } = true;
+    public bool TryFallbackModelsOnFailure { get; set; } = true;
+    public bool UseCachedSameInputHashIfAllFail { get; set; } = true;
+    public bool UseCachedAnyPreviousForSessionIfSameInputMissing { get; set; } = false;
+    public int CacheFallbackMaxAgeHours { get; set; } = 168;
 }
 
 public class LiveAnalysisInput

@@ -5,10 +5,32 @@ import { initMediaPipe, detectLandmarks, isMediaPipeReady } from '../services/Me
 import { MetricsComputer, Metrics, BehaviorStats } from '../services/MetricsComputer'
 import { generateCoachingHints, CoachingHint } from '../services/CoachingHints'
 import { AudioAnalyzer } from '../services/AudioAnalyzer'
+import { connectStreamingAsr, StreamingAsrConnection, StreamingAsrStatus } from '../speech/streamingAsr'
+import { SessionTransport, SessionTransportStats } from '../services/SessionTransport'
+import { FixedRollingBuffer } from '../vision/buffer'
+import {
+  computeEyeContactScore,
+  computeEyeOpenness,
+  computeFidgetScore,
+  computeHeadJitter,
+  computeHeadPose,
+  computePostureScore,
+  smooth
+} from '../vision/features'
+import { Calibration, HeadPose, PoseLandmarks, VisionMetrics } from '../vision/types'
 import { VideoCanvas } from '../components/VideoCanvas'
 import { LiveHints } from '../components/LiveHints'
 import { TranscriptModal } from '../components/TranscriptModal'
 import '../styles/pages.css'
+
+const VISION_DEBUG_OVERLAY = true
+const DEBUG_TRANSPORT = true
+const CALIBRATION_DURATION_MS = 5000
+const VISION_EVENT_INTERVAL_MS = 500
+const ROLLING_SECONDS = 5
+const APPROX_FPS = 30
+const VISION_BUFFER_SIZE = ROLLING_SECONDS * APPROX_FPS
+const METRIC_SMOOTH_ALPHA = 0.2
 
 interface WarningHistoryItem {
   id: string
@@ -67,16 +89,31 @@ function InterviewSession() {
   const [llmInsight, setLlmInsight] = useState<LiveAnalysisResponse | null>(null)
   const [liveTranscriptLines, setLiveTranscriptLines] = useState<string[]>([])
   const [liveTranscriptInterim, setLiveTranscriptInterim] = useState('')
-  const [liveTranscriptSupported, setLiveTranscriptSupported] = useState(true)
+  const [asrStatus, setAsrStatus] = useState<StreamingAsrStatus>('stopped')
+  const [asrError, setAsrError] = useState<string | null>(null)
+  const [asrNotice, setAsrNotice] = useState<string | null>(null)
   const [clockNow, setClockNow] = useState(new Date())
   const [warningHistory, setWarningHistory] = useState<WarningHistoryItem[]>([])
+  const [visionMetrics, setVisionMetrics] = useState<VisionMetrics>({
+    eyeContact: 0,
+    posture: 0,
+    fidget: 0,
+    headJitter: 0,
+    eyeOpenness: 0,
+    calibrated: false
+  })
+  const [visionCalibration, setVisionCalibration] = useState<Calibration | null>(null)
+  const [transportStats, setTransportStats] = useState<SessionTransportStats>({
+    queued: 0,
+    sent: 0,
+    dropped: 0,
+    failedBatches: 0
+  })
 
   const metricsComputerRef = useRef<MetricsComputer | null>(null)
   const audioAnalyzerRef = useRef<AudioAnalyzer | null>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const audioChunksRef = useRef<Blob[]>([])
-  const metricsBufferRef = useRef<Metrics[]>([])
-  const postIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const frameCountRef = useRef(0)
   const mediaStreamRef = useRef<MediaStream | null>(null)
   const lastPoseLandmarksRef = useRef<any[] | null>(null)
@@ -84,15 +121,28 @@ function InterviewSession() {
   const liveAnalysisIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const metricsWindowRef = useRef<Metrics[]>([])
   const behaviorStatsRef = useRef<BehaviorStats>(behaviorStats)
-  const speechRecognitionRef = useRef<any>(null)
-  const shouldRestartRecognitionRef = useRef(false)
   const isRecordingRef = useRef(false)
-  const liveChunkIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
-  const liveChunkBusyRef = useRef(false)
-  const liveChunkBufferRef = useRef<Blob[]>([])
-  const liveChunkCumulativeRef = useRef<Blob[]>([])
+  const asrConnectionRef = useRef<StreamingAsrConnection | null>(null)
+  const sessionTransportRef = useRef<SessionTransport | null>(null)
+  const transportStatsIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const warningSeenAtRef = useRef<Record<string, number>>({})
-
+  const sessionStartAtMsRef = useRef<number | null>(null)
+  const lastVisionEventSentAtRef = useRef<number>(0)
+  const headPoseBufferRef = useRef(new FixedRollingBuffer<HeadPose>(VISION_BUFFER_SIZE))
+  const poseBufferRef = useRef(new FixedRollingBuffer<PoseLandmarks>(VISION_BUFFER_SIZE))
+  const smoothedVisionMetricsRef = useRef<Omit<VisionMetrics, 'calibrated'>>({
+    eyeContact: 0,
+    posture: 0,
+    fidget: 0,
+    headJitter: 0,
+    eyeOpenness: 0
+  })
+  const calibrationAccumulatorRef = useRef({
+    yawSum: 0,
+    pitchSum: 0,
+    eyeOpennessSum: 0,
+    sampleCount: 0
+  })
   useEffect(() => {
     loadSession()
     initializeMediaPipe()
@@ -114,21 +164,17 @@ function InterviewSession() {
   useEffect(() => {
     return () => {
       closeMediaCapture()
+      void asrConnectionRef.current?.stop()
+      asrConnectionRef.current = null
+      void sessionTransportRef.current?.stop({ flush: true })
+      sessionTransportRef.current = null
+      if (transportStatsIntervalRef.current) {
+        clearInterval(transportStatsIntervalRef.current)
+        transportStatsIntervalRef.current = null
+      }
       if (liveAnalysisIntervalRef.current) {
         clearInterval(liveAnalysisIntervalRef.current)
         liveAnalysisIntervalRef.current = null
-      }
-      if (liveChunkIntervalRef.current) {
-        clearInterval(liveChunkIntervalRef.current)
-        liveChunkIntervalRef.current = null
-      }
-      shouldRestartRecognitionRef.current = false
-      if (speechRecognitionRef.current) {
-        try {
-          speechRecognitionRef.current.stop()
-        } catch {
-          // no-op
-        }
       }
     }
   }, [])
@@ -162,11 +208,67 @@ function InterviewSession() {
     }
   }
 
+  const resetVisionPipeline = () => {
+    sessionStartAtMsRef.current = null
+    lastVisionEventSentAtRef.current = 0
+    headPoseBufferRef.current.clear()
+    poseBufferRef.current.clear()
+    calibrationAccumulatorRef.current = {
+      yawSum: 0,
+      pitchSum: 0,
+      eyeOpennessSum: 0,
+      sampleCount: 0
+    }
+    smoothedVisionMetricsRef.current = {
+      eyeContact: 0,
+      posture: 0,
+      fidget: 0,
+      headJitter: 0,
+      eyeOpenness: 0
+    }
+    setVisionCalibration(null)
+    setVisionMetrics({
+      eyeContact: 0,
+      posture: 0,
+      fidget: 0,
+      headJitter: 0,
+      eyeOpenness: 0,
+      calibrated: false
+    })
+  }
+
   const startRecording = async () => {
     try {
       if (!isMediaPipeReady()) {
         alert('MediaPipe not ready')
         return
+      }
+
+      resetVisionPipeline()
+      sessionStartAtMsRef.current = performance.now()
+
+      if (sessionId) {
+        if (sessionTransportRef.current) {
+          await sessionTransportRef.current.stop({ flush: false })
+        }
+        const baseUrl = (import.meta.env.VITE_API_URL || 'http://localhost:8080/api').replace(/\/$/, '')
+        const transport = new SessionTransport({
+          apiBaseUrl: baseUrl,
+          sessionId,
+          flushIntervalMs: 500,
+          maxBatchSize: 50,
+          maxQueue: 500,
+          maxRetries: 3
+        })
+        transport.start()
+        sessionTransportRef.current = transport
+
+        if (transportStatsIntervalRef.current) {
+          clearInterval(transportStatsIntervalRef.current)
+        }
+        transportStatsIntervalRef.current = setInterval(() => {
+          setTransportStats(transport.getStats())
+        }, 500)
       }
 
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -197,7 +299,6 @@ function InterviewSession() {
           mediaRecorderRef.current.ondataavailable = (e) => {
             if (e.data.size > 0) {
               audioChunksRef.current.push(e.data)
-              liveChunkBufferRef.current.push(e.data)
             }
           }
           mediaRecorderRef.current.start(1000)
@@ -215,46 +316,15 @@ function InterviewSession() {
         console.warn('Audio analyzer init failed:', audioError)
       }
 
-      // Start posting metrics every 1s
-      metricsBufferRef.current = []
-      postIntervalRef.current = setInterval(async () => {
-        if (metricsBufferRef.current.length > 0 && sessionId) {
-          const events = metricsBufferRef.current.map(m => ({
-            timestampMs: m.timestamp,
-            type: 'combined',
-            value: {
-              eyeContact: m.eyeContact,
-              headStability: m.headStability,
-              posture: m.posture,
-              fidget: m.fidget
-            }
-          }))
-
-          try {
-            await ApiService.postMetrics(sessionId, events)
-          } catch (error) {
-            console.error('Failed to post metrics:', error)
-          }
-
-          metricsBufferRef.current = []
-        }
-      }, 1000)
-
       setLiveTranscriptLines([])
       setLiveTranscriptInterim('')
-      liveChunkBufferRef.current = []
-      liveChunkCumulativeRef.current = []
       warningSeenAtRef.current = {}
       setWarningHistory([])
+      setAsrError(null)
+      setAsrNotice(null)
       setIsRecording(true)
       isRecordingRef.current = true
-      startLiveTranscript()
-      if (liveChunkIntervalRef.current) {
-        clearInterval(liveChunkIntervalRef.current)
-      }
-      liveChunkIntervalRef.current = setInterval(() => {
-        void transcribeLiveChunks()
-      }, 7000)
+      await startStreamingAsr(stream)
       if (liveAnalysisIntervalRef.current) {
         clearInterval(liveAnalysisIntervalRef.current)
       }
@@ -284,11 +354,17 @@ function InterviewSession() {
   }
 
   const stopRecording = async () => {
-    stopLiveTranscript()
-    if (liveChunkIntervalRef.current) {
-      clearInterval(liveChunkIntervalRef.current)
-      liveChunkIntervalRef.current = null
+    const transportStopPromise = sessionTransportRef.current?.stop({ flush: true }) ?? Promise.resolve()
+    sessionTransportRef.current = null
+    if (transportStatsIntervalRef.current) {
+      clearInterval(transportStatsIntervalRef.current)
+      transportStatsIntervalRef.current = null
     }
+
+    const asrStopPromise = asrConnectionRef.current?.stop() ?? Promise.resolve()
+    asrConnectionRef.current = null
+    setAsrStatus('stopped')
+    setAsrNotice(null)
 
     let recorderStopPromise: Promise<unknown> = Promise.resolve()
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
@@ -313,10 +389,6 @@ function InterviewSession() {
     lastPoseLandmarksRef.current = null
     poseMissFramesRef.current = 0
 
-    if (postIntervalRef.current) {
-      clearInterval(postIntervalRef.current)
-      postIntervalRef.current = null
-    }
     if (liveAnalysisIntervalRef.current) {
       clearInterval(liveAnalysisIntervalRef.current)
       liveAnalysisIntervalRef.current = null
@@ -324,113 +396,79 @@ function InterviewSession() {
 
     setIsRecording(false)
     isRecordingRef.current = false
+    await transportStopPromise
+    await asrStopPromise
     await recorderStopPromise
-    await transcribeLiveChunks()
   }
 
-  const startLiveTranscript = () => {
-    const SpeechRecognitionCtor = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
-    if (!SpeechRecognitionCtor) {
-      setLiveTranscriptSupported(false)
-      return
-    }
+  const startStreamingAsr = async (stream: MediaStream) => {
+    if (!sessionId) return
 
-    setLiveTranscriptSupported(true)
-    shouldRestartRecognitionRef.current = true
-
-    if (!speechRecognitionRef.current) {
-      const recognition = new SpeechRecognitionCtor()
-      recognition.lang = session?.language === 'en' ? 'en-US' : 'tr-TR'
-      recognition.continuous = true
-      recognition.interimResults = true
-      recognition.maxAlternatives = 1
-
-      recognition.onresult = (event: any) => {
-        let interim = ''
-        const finalChunks: string[] = []
-        for (let i = event.resultIndex; i < event.results.length; i++) {
-          const result = event.results[i]
-          const text = (result?.[0]?.transcript || '').trim()
-          if (!text) continue
-          if (result.isFinal) finalChunks.push(text)
-          else interim += `${text} `
-        }
-        if (finalChunks.length > 0) {
-          setLiveTranscriptLines(prev => [...prev, ...finalChunks].slice(-250))
-        }
-        setLiveTranscriptInterim(interim.trim())
-      }
-
-      recognition.onend = () => {
-        if (shouldRestartRecognitionRef.current && isRecordingRef.current) {
-          try {
-            recognition.start()
-          } catch {
-            // no-op
-          }
-        }
-      }
-
-      recognition.onerror = (event: any) => {
-        const err = event?.error || 'unknown'
-        console.warn('Live transcript error:', err)
-        if (err === 'not-allowed' || err === 'service-not-allowed' || err === 'audio-capture') {
-          setLiveTranscriptSupported(false)
-          shouldRestartRecognitionRef.current = false
-        }
-      }
-
-      speechRecognitionRef.current = recognition
-    }
-
-    try {
-      speechRecognitionRef.current.start()
-    } catch {
-      // no-op
-    }
-  }
-
-  const stopLiveTranscript = () => {
-    shouldRestartRecognitionRef.current = false
+    setAsrError(null)
+    setAsrNotice(null)
+    setAsrStatus('connecting')
     setLiveTranscriptInterim('')
-    if (speechRecognitionRef.current) {
-      try {
-        speechRecognitionRef.current.stop()
-      } catch {
-        // no-op
-      }
-    }
-  }
+    setLiveTranscriptLines([])
 
-  const transcribeLiveChunks = async () => {
-    if (liveChunkBusyRef.current || liveChunkBufferRef.current.length === 0) return
-
-    liveChunkBusyRef.current = true
     try {
-      const newChunks = [...liveChunkBufferRef.current]
-      liveChunkBufferRef.current = []
-      liveChunkCumulativeRef.current.push(...newChunks)
-      if (liveChunkCumulativeRef.current.length === 0) return
+      asrConnectionRef.current = await connectStreamingAsr({
+        url: import.meta.env.VITE_SPEECH_URL || 'http://localhost:8000',
+        sessionId,
+        lang: session?.language === 'en' ? 'en' : 'tr',
+        task: 'transcribe',
+        useVad: true,
+        mediaStream: stream,
+        onStatus: (status) => {
+          setAsrStatus(status)
+          if (status === 'connected') {
+            setAsrError(null)
+            setAsrNotice(null)
+          }
+        },
+        onError: (message) => {
+          setAsrStatus('error')
+          setAsrError(message)
+        },
+        onNotice: (message) => {
+          setAsrNotice(message)
+        },
+        onPartial: (text) => {
+          setLiveTranscriptInterim(text.trim())
+        },
+        onFinal: (payload) => {
+          setAsrNotice(null)
+          setLiveTranscriptInterim('')
+          const finalizedLines = payload.segments
+            .map((segment) => segment.text.trim())
+            .filter((line) => line.length > 0)
 
-      const audioBlob = new Blob(liveChunkCumulativeRef.current, { type: 'audio/webm' })
-      const formData = new FormData()
-      formData.append('file', audioBlob, 'live.webm')
+          if (finalizedLines.length > 0) {
+            setLiveTranscriptLines((prev) => [...prev, ...finalizedLines].slice(-5))
+          }
 
-      const transcriptResult = await ApiService.transcribeAudio(formData, session?.language || 'tr')
-      const fullText = (transcriptResult?.full_text || '').trim()
-      if (fullText.length === 0) return
+          const ingestSegments = payload.segments
+            .filter((segment) => segment.text && segment.text.trim().length > 0)
+            .map((segment) => ({
+              clientSegmentId: crypto.randomUUID(),
+              startMs: Math.max(0, Math.round(segment.start_ms)),
+              endMs: Math.max(0, Math.round(segment.end_ms)),
+              text: segment.text.trim()
+            }))
 
-      const sentenceLines = fullText
-        .split(/(?<=[.!?])\s+|\n+/)
-        .map((line: string) => line.trim())
-        .filter(Boolean)
+          if (ingestSegments.length === 0) return
 
-      setLiveTranscriptLines(sentenceLines.slice(-250))
-      setLiveTranscriptInterim('')
+          void ApiService.postTranscriptBatch(sessionId, ingestSegments).catch((error) => {
+            console.warn('Failed to push transcript batch:', error)
+          })
+        }
+      })
     } catch (error) {
-      console.warn('Live chunk transcription skipped:', error)
-    } finally {
-      liveChunkBusyRef.current = false
+      setAsrStatus('error')
+      const message = error instanceof Error && error.message
+        ? error.message
+        : 'Live transcript could not start. Vision can continue.'
+      setAsrError(message)
+      console.warn('Streaming ASR startup failed:', error)
     }
   }
 
@@ -462,6 +500,84 @@ function InterviewSession() {
       setFaceLandmarks(faceLm.length > 0 ? faceLm : undefined)
       setPoseLandmarks(stablePoseLm.length > 0 ? stablePoseLm : undefined)
 
+      const nowMs = performance.now()
+      const startedAtMs = sessionStartAtMsRef.current ?? nowMs
+      const elapsedMs = Math.max(0, Math.round(nowMs - startedAtMs))
+      const currentHeadPose = faceLm.length > 0 ? computeHeadPose(faceLm) : { yaw: 0, pitch: 0 }
+
+      if (faceLm.length > 0) {
+        headPoseBufferRef.current.push(currentHeadPose)
+      }
+      if (stablePoseLm.length > 0) {
+        poseBufferRef.current.push(stablePoseLm)
+      }
+
+      const eyeOpennessRaw = faceLm.length > 0
+        ? computeEyeOpenness(faceLm)
+        : smoothedVisionMetricsRef.current.eyeOpenness
+      const postureRaw = stablePoseLm.length > 0
+        ? computePostureScore(stablePoseLm)
+        : smoothedVisionMetricsRef.current.posture
+      const fidgetRaw = computeFidgetScore(poseBufferRef.current.values())
+      const headJitterRaw = computeHeadJitter(headPoseBufferRef.current.values())
+
+      let calibration = visionCalibration
+      if (!calibration && elapsedMs <= CALIBRATION_DURATION_MS && faceLm.length > 0) {
+        calibrationAccumulatorRef.current.yawSum += currentHeadPose.yaw
+        calibrationAccumulatorRef.current.pitchSum += currentHeadPose.pitch
+        calibrationAccumulatorRef.current.eyeOpennessSum += eyeOpennessRaw
+        calibrationAccumulatorRef.current.sampleCount += 1
+      }
+
+      if (!calibration && elapsedMs >= CALIBRATION_DURATION_MS) {
+        const sampleCount = calibrationAccumulatorRef.current.sampleCount
+        if (sampleCount > 0) {
+          calibration = {
+            baselineYaw: calibrationAccumulatorRef.current.yawSum / sampleCount,
+            baselinePitch: calibrationAccumulatorRef.current.pitchSum / sampleCount,
+            baselineEyeOpenness: calibrationAccumulatorRef.current.eyeOpennessSum / sampleCount,
+            startedAtMs: startedAtMs,
+            completedAtMs: startedAtMs + CALIBRATION_DURATION_MS,
+            sampleCount
+          }
+          setVisionCalibration(calibration)
+        }
+      }
+
+      const calibrated = !!calibration
+      const eyeContactRaw = computeEyeContactScore(currentHeadPose, calibration)
+      const prev = smoothedVisionMetricsRef.current
+      const smoothed = {
+        eyeContact: smooth(prev.eyeContact, eyeContactRaw, METRIC_SMOOTH_ALPHA),
+        posture: smooth(prev.posture, postureRaw, METRIC_SMOOTH_ALPHA),
+        fidget: smooth(prev.fidget, fidgetRaw, METRIC_SMOOTH_ALPHA),
+        headJitter: smooth(prev.headJitter, headJitterRaw, METRIC_SMOOTH_ALPHA),
+        eyeOpenness: smooth(prev.eyeOpenness, eyeOpennessRaw, METRIC_SMOOTH_ALPHA)
+      }
+      smoothedVisionMetricsRef.current = smoothed
+      setVisionMetrics({
+        ...smoothed,
+        calibrated
+      })
+
+      if (calibrated && elapsedMs - lastVisionEventSentAtRef.current >= VISION_EVENT_INTERVAL_MS) {
+        lastVisionEventSentAtRef.current = elapsedMs
+        sessionTransportRef.current?.enqueueEvent({
+          clientEventId: crypto.randomUUID(),
+          tsMs: elapsedMs,
+          source: 'Vision',
+          type: 'vision_metrics_v1',
+          payload: {
+            eyeContact: smoothed.eyeContact,
+            posture: smoothed.posture,
+            fidget: smoothed.fidget,
+            headJitter: smoothed.headJitter,
+            eyeOpenness: smoothed.eyeOpenness,
+            calibrated: true
+          }
+        })
+      }
+
       if (faceLm.length > 0) {
         const metrics = metricsComputerRef.current.computeFrame(
           faceLm,
@@ -470,7 +586,6 @@ function InterviewSession() {
 
         setCurrentMetrics(metrics)
         setBehaviorStats(metricsComputerRef.current.getBehaviorStats())
-        metricsBufferRef.current.push(metrics)
         metricsWindowRef.current.push(metrics)
         if (metricsWindowRef.current.length > 600) {
           metricsWindowRef.current.splice(0, metricsWindowRef.current.length - 600)
@@ -659,6 +774,8 @@ function InterviewSession() {
       audioChunksRef.current = []
       setLiveTranscriptLines([])
       setLiveTranscriptInterim('')
+      setAsrNotice(null)
+      setAsrError(null)
       warningSeenAtRef.current = {}
       setWarningHistory([])
     } else {
@@ -686,67 +803,172 @@ function InterviewSession() {
     hrDeg: hour * 30,
     minDeg: minute * 6
   }
+  const calibrationRemainingMs = (() => {
+    if (visionCalibration || !sessionStartAtMsRef.current || !isRecording) return 0
+    const elapsed = performance.now() - sessionStartAtMsRef.current
+    return Math.max(0, Math.round(CALIBRATION_DURATION_MS - elapsed))
+  })()
+  const sessionElapsedSeconds = sessionStartAtMsRef.current && isRecording
+    ? Math.max(0, Math.floor((performance.now() - sessionStartAtMsRef.current) / 1000))
+    : 0
+  const formattedElapsed = `${Math.floor(sessionElapsedSeconds / 60).toString().padStart(2, '0')}:${(sessionElapsedSeconds % 60).toString().padStart(2, '0')}`
+  const eyeContactPercent = Math.round(currentMetrics.eyeContact)
+  const pacePercent = Math.round(currentMetrics.headStability)
+  const sentimentLabel = llmInsight?.summary || `${behaviorStats.currentEmotion} anlatim`
 
   return (
-    <div className="page interview-page">
-      <div className="container">
-        <h1>Interview Session - {session.selectedRole}</h1>
+    <div className="page interview-page session-page">
+      <div className="session-shell">
+        <div className="session-header">
+          <div>
+            <span className="eyebrow">Canli AI Interview</span>
+            <h1 style={{ marginBottom: 0 }}>{session.selectedRole}</h1>
+          </div>
+          <div className="session-header-meta">
+            <span className="status-pill">{isRecording ? 'Canli oturum' : 'Hazir'}</span>
+            <span className="session-timer">{formattedElapsed}</span>
+          </div>
+        </div>
 
         <div className="interview-layout">
-          <div className="question-panel">
-            <div className="question-header">
-              <h2>Question {currentQuestionIndex + 1} of {questions.length}</h2>
-            </div>
-            {currentQuestion && (
-              <div className="question-content">
-                <p className="question-text">{currentQuestion.prompt}</p>
+          <div className="question-column">
+            <section className="question-card">
+              <div className="question-meta">Soru {currentQuestionIndex + 1} / {questions.length || 1}</div>
+              {currentQuestion && <h2>{currentQuestion.prompt}</h2>}
+              <div className="question-tags">
+                <span className="tag">{session.selectedRole || 'Interview'}</span>
+                <span className="tag">{session.language === 'en' ? 'English' : 'Turkish'}</span>
+                <span className="tag">{isRecording ? 'Live feedback' : 'Waiting to start'}</span>
               </div>
-            )}
-          </div>
+            </section>
 
-          <div className="recording-panel">
-            <div className="recording-live-grid">
-              <div>
-                <div className="video-stage">
-                  <div className="mechanical-clock" title={clockNow.toLocaleTimeString('tr-TR')}>
-                    <span className="clock-center" />
-                    <span className="clock-hand hour" style={{ transform: `translateX(-50%) rotate(${mechanicalClock.hrDeg}deg)` }} />
-                    <span className="clock-hand minute" style={{ transform: `translateX(-50%) rotate(${mechanicalClock.minDeg}deg)` }} />
+            <section className="analysis-card">
+              <div className="eyebrow" style={{ marginBottom: 12 }}>AI Assistant Analysis</div>
+              <div className="analysis-grid">
+                <div className="analysis-mini">
+                  <div className="analysis-mini-header">
+                    <span>Goz temasi</span>
+                    <span>{eyeContactPercent}%</span>
                   </div>
-                  {isRecording && mediaReady && (
-                    <VideoCanvas
-                      width={480}
-                      height={360}
-                      stream={videoStream}
-                      onFrame={handleFrame}
-                      drawLandmarks={showOverlay}
-                      faceLandmarks={faceLandmarks}
-                      poseLandmarks={poseLandmarks}
-                      showFaceDetails={showFaceOverlay}
-                      showPoseDetails={showPoseOverlay}
-                      showDiagnostics={showDiagnosticsOverlay}
-                    />
-                  )}
+                  <div className="analysis-track">
+                    <div className="analysis-fill primary" style={{ width: `${Math.max(0, Math.min(100, eyeContactPercent))}%` }} />
+                  </div>
+                  <div className="live-transcript-line">Kamera odagi ve bakis hizasi bu kartta ozetlenir.</div>
+                </div>
 
-                  {!isRecording && (
-                    <div className="camera-placeholder">
-                      <p>Click "Start Recording" to begin</p>
-                    </div>
-                  )}
+                <div className="analysis-mini">
+                  <div className="analysis-mini-header">
+                    <span>Stabil anlatim</span>
+                    <span>{pacePercent}%</span>
+                  </div>
+                  <div className="analysis-track">
+                    <div className="analysis-fill secondary" style={{ width: `${Math.max(0, Math.min(100, pacePercent))}%` }} />
+                  </div>
+                  <div className="live-transcript-line">Ses temposu ve kafa hareketi akisinin dengesi.</div>
                 </div>
               </div>
 
+              <div className="analysis-mini" style={{ marginTop: 16 }}>
+                <div className="analysis-mini-header">
+                  <span>Anlik yorum</span>
+                  <span>{behaviorStats.dominantEmotion}</span>
+                </div>
+                <div className="live-transcript-line">{sentimentLabel}</div>
+              </div>
+            </section>
+
+            {isRecording && (
+              <LiveHints
+                hints={coaching}
+                metrics={currentMetrics}
+                behaviorStats={behaviorStats}
+                warningHistory={warningHistory}
+              />
+            )}
+          </div>
+
+          <div className="video-column">
+            <div className="video-stage-wrap">
+              <div className="video-chip">{asrStatus === 'connected' ? 'Ses aktif' : 'Mikrofon hazirlaniyor'}</div>
+              <div className="video-badge">AI</div>
+              <div className="video-stage">
+                <div className="mechanical-clock" title={clockNow.toLocaleTimeString('tr-TR')}>
+                  <span className="clock-center" />
+                  <span className="clock-hand hour" style={{ transform: `translateX(-50%) rotate(${mechanicalClock.hrDeg}deg)` }} />
+                  <span className="clock-hand minute" style={{ transform: `translateX(-50%) rotate(${mechanicalClock.minDeg}deg)` }} />
+                </div>
+                {isRecording && mediaReady && (
+                  <VideoCanvas
+                    width={1280}
+                    height={720}
+                    stream={videoStream}
+                    onFrame={handleFrame}
+                    drawLandmarks={showOverlay}
+                    faceLandmarks={faceLandmarks}
+                    poseLandmarks={poseLandmarks}
+                    showFaceDetails={showFaceOverlay}
+                    showPoseDetails={showPoseOverlay}
+                    showDiagnostics={showDiagnosticsOverlay}
+                  />
+                )}
+
+                {VISION_DEBUG_OVERLAY && isRecording && (
+                  <div className="vision-debug-overlay">
+                    <div className="vision-debug-title">
+                      Vision Metrics ({visionMetrics.calibrated ? 'Calibrated' : 'Calibrating'})
+                    </div>
+                    {!visionMetrics.calibrated && (
+                      <div className="vision-debug-line">remaining: {(calibrationRemainingMs / 1000).toFixed(1)}s</div>
+                    )}
+                    <div className="vision-debug-line">eyeContact: {visionMetrics.eyeContact.toFixed(2)}</div>
+                    <div className="vision-debug-line">posture: {visionMetrics.posture.toFixed(2)}</div>
+                    <div className="vision-debug-line">fidget: {visionMetrics.fidget.toFixed(2)}</div>
+                    <div className="vision-debug-line">headJitter: {visionMetrics.headJitter.toFixed(2)}</div>
+                    <div className="vision-debug-line">eyeOpenness: {visionMetrics.eyeOpenness.toFixed(2)}</div>
+                  </div>
+                )}
+
+                {DEBUG_TRANSPORT && isRecording && (
+                  <div className="transport-debug-overlay">
+                    <div className="transport-debug-title">Transport</div>
+                    <div className="transport-debug-line">queued: {transportStats.queued}</div>
+                    <div className="transport-debug-line">sent: {transportStats.sent}</div>
+                    <div className="transport-debug-line">dropped: {transportStats.dropped}</div>
+                    <div className="transport-debug-line">failed: {transportStats.failedBatches}</div>
+                    <div className="transport-debug-line">error: {transportStats.lastError || '-'}</div>
+                  </div>
+                )}
+
+                {!isRecording && (
+                  <div className="camera-placeholder">
+                    <p>Start Recording ile kamera ve mikrofonu baslatin.</p>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <section className="transcript-shell">
               <aside className="live-transcript-panel">
-                <div className="live-transcript-header">Canli Konusma Metni</div>
+                <div className="live-transcript-header">
+                  Transcript updates
+                  <span className={`asr-status-badge status-${asrStatus}`}>
+                    {asrStatus}
+                  </span>
+                </div>
                 <div className="live-transcript-body">
-                  {!liveTranscriptSupported && (
-                    <div className="live-transcript-empty">
-                      Tarayici ses tanima destegi yok. Metin, kayit sirasinda sunucu tarafinda 6-8 saniyede bir guncellenir.
+                  {asrNotice && !asrError && (
+                    <div className="live-transcript-notice">
+                      {asrNotice}
                     </div>
                   )}
-                  {liveTranscriptLines.length === 0 && !liveTranscriptInterim && (
+                  {asrError && (
                     <div className="live-transcript-empty">
-                      Kayit baslayinca konusmaniz burada anlik yazacak (yaklasik 6-8 saniye gecikmeli).
+                      {asrError}
+                    </div>
+                  )}
+                  {!asrError && liveTranscriptLines.length === 0 && !liveTranscriptInterim && (
+                    <div className="live-transcript-empty">
+                      Speak naturally. Finalized transcript lines appear after short pauses.
                     </div>
                   )}
                   {liveTranscriptLines.map((line, idx) => (
@@ -759,94 +981,87 @@ function InterviewSession() {
                   )}
                 </div>
               </aside>
-            </div>
 
-            <div className="controls">
-              <button
-                onClick={isRecording ? stopRecording : startRecording}
-                className={`btn ${isRecording ? 'btn-danger' : 'btn-success'}`}
-              >
-                {isRecording ? 'Stop Recording' : 'Start Recording'}
-              </button>
-              <button
-                type="button"
-                onClick={() => setShowOverlay(v => !v)}
-                className="btn btn-secondary"
-              >
-                {showOverlay ? 'Overlay: ON' : 'Overlay: OFF'}
-              </button>
-            </div>
-
-            <div className="overlay-controls">
-              <button
-                type="button"
-                onClick={() => setShowFaceOverlay(v => !v)}
-                className="btn btn-secondary btn-sm"
-                disabled={!showOverlay}
-              >
-                {showFaceOverlay ? 'Face Details: ON' : 'Face Details: OFF'}
-              </button>
-              <button
-                type="button"
-                onClick={() => setShowPoseOverlay(v => !v)}
-                className="btn btn-secondary btn-sm"
-                disabled={!showOverlay}
-              >
-                {showPoseOverlay ? 'Body Details: ON' : 'Body Details: OFF'}
-              </button>
-              <button
-                type="button"
-                onClick={() => setShowDiagnosticsOverlay(v => !v)}
-                className="btn btn-secondary btn-sm"
-                disabled={!showOverlay}
-              >
-                {showDiagnosticsOverlay ? 'Live Stats: ON' : 'Live Stats: OFF'}
-              </button>
-            </div>
-
-            {showOverlay && (
-              <p className="overlay-info">
-                Overlay acik: yuz mesh + agiz/cene durumu, vucut iskeleti + postur acilari ve canli landmark sayisi gosteriliyor.
-              </p>
-            )}
-
-            {llmInsight && (
-              <div className="llm-insight">
-                <div className="llm-insight-title">
-                  LLM Canli Analiz ({llmInsight.model}) - Guven: %{Math.round((llmInsight.confidence || 0) * 100)}
+              <div>
+                <div className="controls">
+                  <button
+                    onClick={isRecording ? stopRecording : startRecording}
+                    className={`btn ${isRecording ? 'btn-danger' : 'btn-primary'}`}
+                  >
+                    {isRecording ? 'Kaydi Durdur' : 'Start Recording'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowOverlay(v => !v)}
+                    className="btn btn-secondary"
+                  >
+                    {showOverlay ? 'Overlay On' : 'Overlay Off'}
+                  </button>
                 </div>
-                <div className="llm-insight-summary">{llmInsight.summary}</div>
-                {llmInsight.risks?.length > 0 && (
-                  <div className="llm-insight-list">
-                    Riskler: {llmInsight.risks.join(' | ')}
-                  </div>
+
+                <div className="overlay-controls" style={{ marginTop: 12 }}>
+                  <button
+                    type="button"
+                    onClick={() => setShowFaceOverlay(v => !v)}
+                    className="btn btn-secondary btn-sm"
+                    disabled={!showOverlay}
+                  >
+                    {showFaceOverlay ? 'Face details on' : 'Face details off'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowPoseOverlay(v => !v)}
+                    className="btn btn-secondary btn-sm"
+                    disabled={!showOverlay}
+                  >
+                    {showPoseOverlay ? 'Body details on' : 'Body details off'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowDiagnosticsOverlay(v => !v)}
+                    className="btn btn-secondary btn-sm"
+                    disabled={!showOverlay}
+                  >
+                    {showDiagnosticsOverlay ? 'Live stats on' : 'Live stats off'}
+                  </button>
+                </div>
+
+                {showOverlay && (
+                  <p className="overlay-info" style={{ marginTop: 14 }}>
+                    Overlay acik: yuz mesh, pose ve canli landmark tanilama gorunuyor.
+                  </p>
                 )}
-                {llmInsight.suggestions?.length > 0 && (
-                  <div className="llm-insight-list">
-                    Oneriler: {llmInsight.suggestions.join(' | ')}
+
+                {llmInsight && (
+                  <div className="llm-insight" style={{ marginTop: 18 }}>
+                    <div className="llm-insight-title">
+                      LLM Canli Analiz ({llmInsight.model}) - Guven: %{Math.round((llmInsight.confidence || 0) * 100)}
+                    </div>
+                    <div className="llm-insight-summary">{llmInsight.summary}</div>
+                    {llmInsight.risks?.length > 0 && (
+                      <div className="llm-insight-list">
+                        Riskler: {llmInsight.risks.join(' | ')}
+                      </div>
+                    )}
+                    {llmInsight.suggestions?.length > 0 && (
+                      <div className="llm-insight-list">
+                        Oneriler: {llmInsight.suggestions.join(' | ')}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
-            )}
+            </section>
 
-            {isRecording && (
-              <LiveHints
-                hints={coaching}
-                metrics={currentMetrics}
-                behaviorStats={behaviorStats}
-                warningHistory={warningHistory}
-              />
-            )}
+            <div className="nav-buttons">
+              <button onClick={handleNext} disabled={uploading} className="btn btn-primary">
+                {uploading ? 'Processing...' : currentQuestionIndex < questions.length - 1 ? 'Next Question' : 'Finish'}
+              </button>
+              {backgroundTranscribes > 0 && (
+                <p className="subtitle" style={{ marginBottom: 0 }}>Onceki cevaplar arka planda isleniyor...</p>
+              )}
+            </div>
           </div>
-        </div>
-
-        <div className="nav-buttons">
-          <button onClick={handleNext} disabled={uploading} className="btn btn-primary">
-            {uploading ? 'Processing...' : currentQuestionIndex < questions.length - 1 ? 'Next Question' : 'Finish'}
-          </button>
-          {backgroundTranscribes > 0 && (
-            <p className="subtitle">Onceki cevaplar arka planda isleniyor...</p>
-          )}
         </div>
       </div>
 
