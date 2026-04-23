@@ -192,8 +192,10 @@ builder.Services.AddOptions<ScoringProfilesOptions>()
     .Bind(builder.Configuration.GetSection("ScoringProfiles"))
     .ValidateOnStart();
 builder.Services.AddSingleton<IValidateOptions<ScoringProfilesOptions>, ScoringProfilesOptionsValidator>();
-builder.Services.Configure<LlmOptions>(
-    builder.Configuration.GetSection("Llm"));
+builder.Services.AddOptions<LlmOptions>()
+    .Bind(builder.Configuration.GetSection("Llm"))
+    .ValidateOnStart();
+builder.Services.AddSingleton<IValidateOptions<LlmOptions>, LlmOptionsValidator>();
 builder.Services.AddOptions<LlmOptimizationOptions>()
     .Bind(builder.Configuration.GetSection("LlmOptimization"))
     .ValidateOnStart();
@@ -295,20 +297,15 @@ builder.Services.AddScoped<ILlmCoachingGuardrailsService, LlmCoachingGuardrailsS
 builder.Services.AddScoped<ILlmOptimizationService, LlmOptimizationService>();
 builder.Services.AddScoped<ILlmCoachingOrchestrator, LlmCoachingOrchestrator>();
 builder.Services.AddScoped<IBatchCoachingJobService, BatchCoachingJobService>();
+builder.Services.AddScoped<ILlmAnalysisService, OpenAiLlmAnalysisService>();
 builder.Services.AddHostedService<BatchCoachingWorker>();
 builder.Services.AddScoped<IJwtTokenService, JwtTokenService>();
 builder.Services.AddScoped<IPasswordHasher<User>, PasswordHasher<User>>();
-builder.Services.AddHttpClient<IOllamaClient, OllamaClient>((sp, client) =>
+builder.Services.AddHttpClient<ILlmClient, OpenAiResponsesClient>((sp, client) =>
 {
     var llm = sp.GetRequiredService<IOptions<LlmOptions>>().Value;
     client.BaseAddress = new Uri(llm.BaseUrl.TrimEnd('/'));
-    client.Timeout = TimeSpan.FromSeconds(llm.TimeoutSeconds > 0 ? llm.TimeoutSeconds : 60);
-});
-builder.Services.AddHttpClient<ILlmAnalysisService, OllamaLlmAnalysisService>((sp, client) =>
-{
-    var llm = sp.GetRequiredService<IOptions<LlmOptions>>().Value;
-    client.BaseAddress = new Uri(llm.BaseUrl.TrimEnd('/'));
-    client.Timeout = TimeSpan.FromSeconds(llm.TimeoutSeconds > 0 ? llm.TimeoutSeconds : 60);
+    client.Timeout = TimeSpan.FromSeconds(llm.TimeoutSeconds > 0 ? llm.TimeoutSeconds : 120);
 });
 
 var connectionString = builder.Configuration.GetConnectionString("Default");

@@ -40,7 +40,7 @@ public class LlmOptimizationService : ILlmOptimizationService
         {
             var disabledBudget = GetPromptBudget(selected);
             var disabledPromptChars = EstimatePromptChars(originalJson.Length);
-            var disabledModel = _llmOptions.Model;
+            var disabledModel = _llmOptions.PrimaryModel;
 
             return new LlmOptimizationPlan
             {
@@ -292,7 +292,7 @@ public class LlmOptimizationService : ILlmOptimizationService
     {
         if (!_options.ModelRouting.Enabled)
         {
-            return _llmOptions.Model;
+            return _llmOptions.PrimaryModel;
         }
 
         var routed = band switch
@@ -302,7 +302,7 @@ public class LlmOptimizationService : ILlmOptimizationService
             _ => _options.ModelRouting.Routes.Medium
         };
 
-        return string.IsNullOrWhiteSpace(routed) ? _llmOptions.Model : routed;
+        return string.IsNullOrWhiteSpace(routed) ? _llmOptions.PrimaryModel : routed;
     }
 
     private int EstimatePromptChars(int compactedEvidenceChars)
@@ -465,9 +465,9 @@ public class LlmOptimizationComplexityThresholds
 
 public class LlmOptimizationRoutes
 {
-    public string Low { get; set; } = "qwen2.5:3b-instruct";
-    public string Medium { get; set; } = "qwen2.5:7b-instruct";
-    public string High { get; set; } = "qwen2.5:7b-instruct";
+    public string Low { get; set; } = "gpt-5.4-mini";
+    public string Medium { get; set; } = "gpt-5.4";
+    public string High { get; set; } = "gpt-5.4";
 }
 
 public sealed class LlmOptimizationPreviewDto

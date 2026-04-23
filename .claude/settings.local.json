@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(wmic computersystem *)",
+      "Bash(wmic cpu *)",
+      "Bash(python -m json.tool)",
+      "Bash(docker volume *)"
+    ]
+  }
+}

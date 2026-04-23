@@ -29,7 +29,7 @@ public sealed class LlmPromptAbEvaluationTests
         var manifest = await LoadManifestAsync();
         manifest.Cases.Should().NotBeEmpty();
 
-        var validator = new LlmCoachingService(new NoopOllamaClient());
+        var validator = new LlmCoachingService(new NoopLlmClient());
 
         var summary = new LlmAbSummary
         {
@@ -494,16 +494,16 @@ EvidenceSummary:
     private static bool IsEnabled(string key)
         => string.Equals(Environment.GetEnvironmentVariable(key), "true", StringComparison.OrdinalIgnoreCase);
 
-    private sealed class NoopOllamaClient : IOllamaClient
+    private sealed class NoopLlmClient : ILlmClient
     {
-        public Task<string> ChatJsonAsync(string systemPrompt, string userPrompt, CancellationToken cancellationToken = default)
+        public Task<LlmJsonResponse> GenerateJsonAsync(LlmJsonRequest request, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
     }
 
     private sealed class LlmEvalSettings
     {
-        public string BaseUrl { get; init; } = "http://localhost:11434";
-        public string Model { get; init; } = "qwen2.5:7b-instruct";
+        public string BaseUrl { get; init; } = "https://api.openai.com/v1";
+        public string Model { get; init; } = "gpt-5.4";
         public int TimeoutSeconds { get; init; } = 60;
 
         public static LlmEvalSettings LoadFromEnvironment()
@@ -511,13 +511,13 @@ EvidenceSummary:
             var baseUrl = Environment.GetEnvironmentVariable("LLM_EVAL_BASE_URL");
             var model = Environment.GetEnvironmentVariable("LLM_EVAL_MODEL");
             var timeoutRaw = Environment.GetEnvironmentVariable("LLM_EVAL_TIMEOUT_SECONDS");
-            var fallbackModel = Environment.GetEnvironmentVariable("LLM_MODEL");
+            var fallbackModel = Environment.GetEnvironmentVariable("OPENAI_PRIMARY_MODEL");
 
             return new LlmEvalSettings
             {
-                BaseUrl = string.IsNullOrWhiteSpace(baseUrl) ? "http://localhost:11434" : baseUrl.TrimEnd('/'),
+                BaseUrl = string.IsNullOrWhiteSpace(baseUrl) ? "https://api.openai.com/v1" : baseUrl.TrimEnd('/'),
                 Model = string.IsNullOrWhiteSpace(model)
-                    ? (string.IsNullOrWhiteSpace(fallbackModel) ? "qwen2.5:7b-instruct" : fallbackModel)
+                    ? (string.IsNullOrWhiteSpace(fallbackModel) ? "gpt-5.4" : fallbackModel)
                     : model,
                 TimeoutSeconds = int.TryParse(timeoutRaw, out var timeout) ? Math.Clamp(timeout, 10, 600) : 60
             };

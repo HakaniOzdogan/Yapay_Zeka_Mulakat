@@ -58,6 +58,36 @@ Write per-client CSV:
 python services/speech-service/perf/perf_ws_transcribe.py --scenario baseline --csv
 ```
 
+## Dataset Benchmark
+
+Use the dataset benchmark when you want to compare `tiny`, `small`, and `medium` on the same Turkish-first interview recordings, especially samples that mix Turkish sentences with English technical terms.
+
+Dataset assets:
+
+- Manifest template: `services/speech-service/perf/datasets/asr_benchmark_manifest.example.json`
+- Dataset guide: `services/speech-service/perf/datasets/README.md`
+
+Run the benchmark:
+
+```bash
+python services/speech-service/perf/run_asr_dataset_benchmark.py \
+  --manifest services/speech-service/perf/datasets/asr_benchmark_manifest.example.json \
+  --models tiny,small \
+  --base-url http://localhost:8000
+```
+
+Single-sample smoke test:
+
+```bash
+python services/speech-service/perf/run_asr_dataset_benchmark.py \
+  --manifest services/speech-service/perf/datasets/asr_benchmark_manifest.example.json \
+  --models tiny \
+  --sample-id tr-tech-mixed-short-01 \
+  --base-url http://localhost:8000
+```
+
+Outputs are written under `services/speech-service/artifacts/benchmark/` as JSON and CSV.
+
 ## CLI Arguments
 
 - `--base-url` default `http://localhost:8000`

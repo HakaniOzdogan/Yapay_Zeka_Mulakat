@@ -1,0 +1,280 @@
+{
+  "notes": "Fill audio_path values with your own recordings before running the benchmark.",
+  "samples": [
+    {
+      "id": "tr-daily-short-01",
+      "source": "real_mic",
+      "category": "daily_tr",
+      "duration_band": "short",
+      "language": "tr",
+      "audio_path": "services/speech-service/perf/datasets/audio/real_mic/tr-daily-short-01.wav",
+      "reference_text": "Bugun kendimi daha iyi hissediyorum ve gorusmeye hazirim.",
+      "expected_terms": [],
+      "notes": "Gunluk Turkce, kisa cevap."
+    },
+    {
+      "id": "tr-daily-medium-01",
+      "source": "real_mic",
+      "category": "daily_tr",
+      "duration_band": "medium",
+      "language": "tr",
+      "audio_path": "services/speech-service/perf/datasets/audio/real_mic/tr-daily-medium-01.wav",
+      "reference_text": "Son projemde ekip ici iletisim cok onemliydi ve gunluk toplantilar sureci hizlandirdi.",
+      "expected_terms": [],
+      "notes": "Gunluk Turkce, orta uzunluk."
+    },
+    {
+      "id": "tr-daily-long-01",
+      "source": "real_mic",
+      "category": "daily_tr",
+      "duration_band": "long",
+      "language": "tr",
+      "audio_path": "services/speech-service/perf/datasets/audio/real_mic/tr-daily-long-01.wav",
+      "reference_text": "Daha once farkli ekiplerle calistim ve her projede once problemi anlamaya sonra da kucuk adimlarla cozum gelistirmeye odaklandim.",
+      "expected_terms": [],
+      "notes": "Gunluk Turkce, daha uzun cevap."
+    },
+    {
+      "id": "tr-daily-short-02",
+      "source": "real_mic",
+      "category": "daily_tr",
+      "duration_band": "short",
+      "language": "tr",
+      "audio_path": "services/speech-service/perf/datasets/audio/real_mic/tr-daily-short-02.wav",
+      "reference_text": "Sunum yaparken once kisa bir ozet verip sonra ayrintilara girmeyi seviyorum.",
+      "expected_terms": [],
+      "notes": "Gunluk Turkce, ikinci kisa cevap."
+    },
+    {
+      "id": "tr-daily-medium-02",
+      "source": "real_mic",
+      "category": "daily_tr",
+      "duration_band": "medium",
+      "language": "tr",
+      "audio_path": "services/speech-service/perf/datasets/audio/real_mic/tr-daily-medium-02.wav",
+      "reference_text": "Zor bir durumda once sakin kalip sorunun kaynagini netlestirmek bana her zaman yardimci oluyor.",
+      "expected_terms": [],
+      "notes": "Gunluk Turkce, ikinci orta cevap."
+    },
+    {
+      "id": "tr-tech-short-01",
+      "source": "real_mic",
+      "category": "technical_tr",
+      "duration_band": "short",
+      "language": "tr",
+      "audio_path": "services/speech-service/perf/datasets/audio/real_mic/tr-tech-short-01.wav",
+      "reference_text": "Veri yapilarinda queue ve stack farkli erisim mantigina sahiptir.",
+      "expected_terms": ["queue", "stack"],
+      "notes": "Teknik Turkce, kisa cevap."
+    },
+    {
+      "id": "tr-tech-medium-01",
+      "source": "real_mic",
+      "category": "technical_tr",
+      "duration_band": "medium",
+      "language": "tr",
+      "audio_path": "services/speech-service/perf/datasets/audio/real_mic/tr-tech-medium-01.wav",
+      "reference_text": "Binary tree icinde arama islemi dugumlerin yapisina baglidir ve balanced oldugunda performans genelde daha iyidir.",
+      "expected_terms": ["binary tree", "balanced"],
+      "notes": "Teknik Turkce, orta uzunluk."
+    },
+    {
+      "id": "tr-tech-long-01",
+      "source": "real_mic",
+      "category": "technical_tr",
+      "duration_band": "long",
+      "language": "tr",
+      "audio_path": "services/speech-service/perf/datasets/audio/real_mic/tr-tech-long-01.wav",
+      "reference_text": "Bir API tasarlarken endpoint isimlendirmesi, error handling ve latency gibi konulari birlikte dusunmek gerekir.",
+      "expected_terms": ["API", "endpoint", "error handling", "latency"],
+      "notes": "Teknik Turkce, uzun cevap."
+    },
+    {
+      "id": "tr-tech-short-02",
+      "source": "real_mic",
+      "category": "technical_tr",
+      "duration_band": "short",
+      "language": "tr",
+      "audio_path": "services/speech-service/perf/datasets/audio/real_mic/tr-tech-short-02.wav",
+      "reference_text": "Thread ve process kavramlari farkli kaynak yonetimi davranislari gosterir.",
+      "expected_terms": ["thread", "process"],
+      "notes": "Teknik Turkce, ikinci kisa cevap."
+    },
+    {
+      "id": "tr-tech-medium-02",
+      "source": "real_mic",
+      "category": "technical_tr",
+      "duration_band": "medium",
+      "language": "tr",
+      "audio_path": "services/speech-service/perf/datasets/audio/real_mic/tr-tech-medium-02.wav",
+      "reference_text": "Database index kullanimi sorgu performansini iyilestirebilir ama yazma maliyetini de artirabilir.",
+      "expected_terms": ["database", "index"],
+      "notes": "Teknik Turkce, ikinci orta cevap."
+    },
+    {
+      "id": "tr-tech-mixed-short-01",
+      "source": "real_mic",
+      "category": "mixed_tr_en_technical",
+      "duration_band": "short",
+      "language": "tr",
+      "audio_path": "services/speech-service/perf/datasets/audio/real_mic/tr-tech-mixed-short-01.wav",
+      "reference_text": "Bu servis request geldikten sonra response suresini cache ile kisaltiyor.",
+      "expected_terms": ["request", "response", "cache"],
+      "notes": "TR+EN teknik terim, kisa cevap."
+    },
+    {
+      "id": "tr-tech-mixed-medium-01",
+      "source": "real_mic",
+      "category": "mixed_tr_en_technical",
+      "duration_band": "medium",
+      "language": "tr",
+      "audio_path": "services/speech-service/perf/datasets/audio/real_mic/tr-tech-mixed-medium-01.wav",
+      "reference_text": "Backend tarafinda thread safe bir queue kullanmak bazen throughput kazandirirken bazen lock contention yuzunden latency arttirabilir.",
+      "expected_terms": ["thread safe", "queue", "throughput", "lock contention", "latency"],
+      "notes": "TR+EN teknik terim, orta uzunluk."
+    },
+    {
+      "id": "tr-tech-mixed-long-01",
+      "source": "real_mic",
+      "category": "mixed_tr_en_technical",
+      "duration_band": "long",
+      "language": "tr",
+      "audio_path": "services/speech-service/perf/datasets/audio/real_mic/tr-tech-mixed-long-01.wav",
+      "reference_text": "Distributed system tasarlarken database replication, failover ve eventual consistency gibi kavramlari birlikte degerlendirmek gerekir.",
+      "expected_terms": ["distributed system", "database replication", "failover", "eventual consistency"],
+      "notes": "TR+EN teknik terim, uzun cevap."
+    },
+    {
+      "id": "tr-tech-mixed-short-02",
+      "source": "real_mic",
+      "category": "mixed_tr_en_technical",
+      "duration_band": "short",
+      "language": "tr",
+      "audio_path": "services/speech-service/perf/datasets/audio/real_mic/tr-tech-mixed-short-02.wav",
+      "reference_text": "Bu feature icin background worker tarafinda retry logic ekledim.",
+      "expected_terms": ["feature", "background worker", "retry logic"],
+      "notes": "TR+EN teknik terim, ikinci kisa cevap."
+    },
+    {
+      "id": "tr-tech-mixed-medium-02",
+      "source": "real_mic",
+      "category": "mixed_tr_en_technical",
+      "duration_band": "medium",
+      "language": "tr",
+      "audio_path": "services/speech-service/perf/datasets/audio/real_mic/tr-tech-mixed-medium-02.wav",
+      "reference_text": "Code review sirasinda naming, edge case ve test coverage konularina ozellikle dikkat ederim.",
+      "expected_terms": ["code review", "edge case", "test coverage"],
+      "notes": "TR+EN teknik terim, ikinci orta cevap."
+    },
+    {
+      "id": "ref-daily-short-01",
+      "source": "reference_read",
+      "category": "daily_tr",
+      "duration_band": "short",
+      "language": "tr",
+      "audio_path": "services/speech-service/perf/datasets/audio/reference_read/ref-daily-short-01.wav",
+      "reference_text": "Takim icinde acik iletisim benim icin cok onemli.",
+      "expected_terms": [],
+      "notes": "Kontrollu temiz okuma."
+    },
+    {
+      "id": "ref-daily-medium-01",
+      "source": "reference_read",
+      "category": "daily_tr",
+      "duration_band": "medium",
+      "language": "tr",
+      "audio_path": "services/speech-service/perf/datasets/audio/reference_read/ref-daily-medium-01.wav",
+      "reference_text": "Projelerde once ihtiyaci anlamaya sonra da bunu test edilebilir kucuk parcalara ayirmaya calisiyorum.",
+      "expected_terms": [],
+      "notes": "Kontrollu temiz okuma."
+    },
+    {
+      "id": "ref-daily-long-01",
+      "source": "reference_read",
+      "category": "daily_tr",
+      "duration_band": "long",
+      "language": "tr",
+      "audio_path": "services/speech-service/perf/datasets/audio/reference_read/ref-daily-long-01.wav",
+      "reference_text": "Yeni bir probleme baslarken once mevcut durumu inceler, sonra da riski dusuk bir cozum denemesiyle ilerlemeyi tercih ederim.",
+      "expected_terms": [],
+      "notes": "Kontrollu temiz okuma."
+    },
+    {
+      "id": "ref-daily-short-02",
+      "source": "reference_read",
+      "category": "daily_tr",
+      "duration_band": "short",
+      "language": "tr",
+      "audio_path": "services/speech-service/perf/datasets/audio/reference_read/ref-daily-short-02.wav",
+      "reference_text": "Toplantilarda kisa ve net konusmaya calisiyorum.",
+      "expected_terms": [],
+      "notes": "Kontrollu temiz okuma."
+    },
+    {
+      "id": "ref-daily-medium-02",
+      "source": "reference_read",
+      "category": "daily_tr",
+      "duration_band": "medium",
+      "language": "tr",
+      "audio_path": "services/speech-service/perf/datasets/audio/reference_read/ref-daily-medium-02.wav",
+      "reference_text": "Belirsiz bir durumda once varsayimlari netlestirip sonra aksiyon almak benim icin daha saglikli oluyor.",
+      "expected_terms": [],
+      "notes": "Kontrollu temiz okuma."
+    },
+    {
+      "id": "ref-tech-short-01",
+      "source": "reference_read",
+      "category": "technical_tr",
+      "duration_band": "short",
+      "language": "tr",
+      "audio_path": "services/speech-service/perf/datasets/audio/reference_read/ref-tech-short-01.wav",
+      "reference_text": "Pointer kullanimi bellek yonetiminde dikkat gerektirir.",
+      "expected_terms": ["pointer"],
+      "notes": "Kontrollu teknik okuma."
+    },
+    {
+      "id": "ref-tech-medium-01",
+      "source": "reference_read",
+      "category": "technical_tr",
+      "duration_band": "medium",
+      "language": "tr",
+      "audio_path": "services/speech-service/perf/datasets/audio/reference_read/ref-tech-medium-01.wav",
+      "reference_text": "Hash table kullanirken collision durumlarini ayri bir strateji ile yonetmek gerekir.",
+      "expected_terms": ["hash table", "collision"],
+      "notes": "Kontrollu teknik okuma."
+    },
+    {
+      "id": "ref-mixed-short-01",
+      "source": "reference_read",
+      "category": "mixed_tr_en_technical",
+      "duration_band": "short",
+      "language": "tr",
+      "audio_path": "services/speech-service/perf/datasets/audio/reference_read/ref-mixed-short-01.wav",
+      "reference_text": "Login request geldiginde token refresh akisini kontrol ediyoruz.",
+      "expected_terms": ["login", "request", "token refresh"],
+      "notes": "Kontrollu TR+EN teknik okuma."
+    },
+    {
+      "id": "ref-mixed-medium-01",
+      "source": "reference_read",
+      "category": "mixed_tr_en_technical",
+      "duration_band": "medium",
+      "language": "tr",
+      "audio_path": "services/speech-service/perf/datasets/audio/reference_read/ref-mixed-medium-01.wav",
+      "reference_text": "Frontend tarafinda state management iyi kurulmazsa render frequency artar ve performans degrade olabilir.",
+      "expected_terms": ["frontend", "state management", "render", "performance"],
+      "notes": "Kontrollu TR+EN teknik okuma."
+    },
+    {
+      "id": "ref-mixed-long-01",
+      "source": "reference_read",
+      "category": "mixed_tr_en_technical",
+      "duration_band": "long",
+      "language": "tr",
+      "audio_path": "services/speech-service/perf/datasets/audio/reference_read/ref-mixed-long-01.wav",
+      "reference_text": "Continuous integration pipeline icinde unit test, integration test ve deployment approval adimlarini birbirinden ayirmak daha saglikli olur.",
+      "expected_terms": ["continuous integration", "pipeline", "unit test", "integration test", "deployment approval"],
+      "notes": "Kontrollu TR+EN teknik okuma."
+    }
+  ]
+}

@@ -26,7 +26,11 @@ public sealed class InterviewCoachApiFactory : WebApplicationFactory<Program>
             {
                 ["ConnectionStrings:Default"] = _connectionString,
                 ["Telemetry:Enabled"] = "false",
-                ["Llm:BaseUrl"] = "http://localhost:11434",
+                ["Llm:Provider"] = "OpenAI",
+                ["Llm:ApiKey"] = "test-openai-key",
+                ["Llm:BaseUrl"] = "https://api.openai.com/v1",
+                ["Llm:PrimaryModel"] = "gpt-5.4",
+                ["Llm:LiveAnalysisModel"] = "gpt-5.4-mini",
                 ["Auth:SeedAdminEmail"] = "admin.regression@example.com",
                 ["Auth:SeedAdminPassword"] = "AdminPass123!"
             });

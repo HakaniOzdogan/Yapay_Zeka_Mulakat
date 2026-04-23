@@ -13,7 +13,80 @@ public interface ILlmCoachingService
 
 public class LlmCoachingService : ILlmCoachingService
 {
-    private readonly IOllamaClient _ollamaClient;
+    private static readonly JsonElement CoachingSchema = JsonSerializer.SerializeToElement(new
+    {
+        type = "object",
+        additionalProperties = false,
+        properties = new
+        {
+            rubric = new
+            {
+                type = "object",
+                additionalProperties = false,
+                properties = new
+                {
+                    technical_correctness = new { type = "integer", minimum = 0, maximum = 5 },
+                    depth = new { type = "integer", minimum = 0, maximum = 5 },
+                    structure = new { type = "integer", minimum = 0, maximum = 5 },
+                    clarity = new { type = "integer", minimum = 0, maximum = 5 },
+                    confidence = new { type = "integer", minimum = 0, maximum = 5 }
+                },
+                required = new[] { "technical_correctness", "depth", "structure", "clarity", "confidence" }
+            },
+            overall = new { type = "integer", minimum = 0, maximum = 100 },
+            feedback = new
+            {
+                type = "array",
+                minItems = 5,
+                maxItems = 10,
+                items = new
+                {
+                    type = "object",
+                    additionalProperties = false,
+                    properties = new
+                    {
+                        category = new { type = "string" },
+                        severity = new { type = "integer", minimum = 1, maximum = 5 },
+                        title = new { type = "string" },
+                        evidence = new { type = "string" },
+                        time_range_ms = new
+                        {
+                            type = "array",
+                            minItems = 2,
+                            maxItems = 2,
+                            items = new { type = "integer" }
+                        },
+                        suggestion = new { type = "string" },
+                        example_phrase = new { type = "string" }
+                    },
+                    required = new[] { "category", "severity", "title", "evidence", "time_range_ms", "suggestion", "example_phrase" }
+                }
+            },
+            drills = new
+            {
+                type = "array",
+                items = new
+                {
+                    type = "object",
+                    additionalProperties = false,
+                    properties = new
+                    {
+                        title = new { type = "string" },
+                        steps = new
+                        {
+                            type = "array",
+                            items = new { type = "string" }
+                        },
+                        duration_min = new { type = "number" }
+                    },
+                    required = new[] { "title", "steps", "duration_min" }
+                }
+            }
+        },
+        required = new[] { "rubric", "overall", "feedback", "drills" }
+    });
+
+    private readonly ILlmClient _llmClient;
 
     private static readonly JsonSerializerOptions StrictOptions = new()
     {
@@ -21,9 +94,9 @@ public class LlmCoachingService : ILlmCoachingService
         UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow
     };
 
-    public LlmCoachingService(IOllamaClient ollamaClient)
+    public LlmCoachingService(ILlmClient llmClient)
     {
-        _ollamaClient = ollamaClient;
+        _llmClient = llmClient;
     }
 
     public async Task<LlmCoachingResult> GenerateAsync(EvidenceSummaryDto evidenceSummary, CancellationToken cancellationToken = default)
@@ -36,22 +109,40 @@ public class LlmCoachingService : ILlmCoachingService
         var systemPrompt = BuildSystemPrompt(evidenceSummary.Language);
         var userPrompt = BuildUserPrompt(evidenceSummary);
 
-        var raw = await _ollamaClient.ChatJsonAsync(model, systemPrompt, userPrompt, cancellationToken);
-        if (TryParseAndValidate(raw, out var output, out var errors))
+        var raw = await _llmClient.GenerateJsonAsync(new LlmJsonRequest
+        {
+            Model = model,
+            SystemPrompt = systemPrompt,
+            UserPrompt = userPrompt,
+            SchemaName = "coaching_report",
+            Schema = CoachingSchema,
+            SourcePath = "/responses"
+        }, cancellationToken);
+
+        if (TryParseAndValidate(raw.Content, out var output, out var errors))
         {
             var minified = JsonSerializer.Serialize(output);
-            return LlmCoachingResult.Success(output!, minified);
+            return LlmCoachingResult.Success(output!, minified, raw.Provider, raw.Model, raw.ReasoningEffort, raw.SourcePath);
         }
 
-        var fixPrompt = BuildFixPrompt(raw, errors);
-        var retriedRaw = await _ollamaClient.ChatJsonAsync(model, systemPrompt, fixPrompt, cancellationToken);
-        if (TryParseAndValidate(retriedRaw, out output, out errors))
+        var fixPrompt = BuildFixPrompt(raw.Content, errors);
+        var retriedRaw = await _llmClient.GenerateJsonAsync(new LlmJsonRequest
+        {
+            Model = model,
+            SystemPrompt = systemPrompt,
+            UserPrompt = fixPrompt,
+            SchemaName = "coaching_report",
+            Schema = CoachingSchema,
+            SourcePath = "/responses"
+        }, cancellationToken);
+
+        if (TryParseAndValidate(retriedRaw.Content, out output, out errors))
         {
             var minified = JsonSerializer.Serialize(output);
-            return LlmCoachingResult.Success(output!, minified);
+            return LlmCoachingResult.Success(output!, minified, retriedRaw.Provider, retriedRaw.Model, retriedRaw.ReasoningEffort, retriedRaw.SourcePath);
         }
 
-        return LlmCoachingResult.Failure(errors);
+        return LlmCoachingResult.Failure(errors, retriedRaw.Provider, retriedRaw.Model, retriedRaw.ReasoningEffort, retriedRaw.SourcePath);
     }
 
     public bool TryParseAndValidate(string json, out LlmCoachingResponse? response, out List<string> errors)
@@ -167,6 +258,7 @@ Numeric constraints:
 - feedback[].severity integer 1..5
 - feedback[].time_range_ms array with exactly 2 integers [startMs,endMs], startMs<=endMs
 Categories allowed only: vision, audio, content, structure.
+Transcript may be absent in this build. When transcript slices are missing, rely on pattern windows, top issues, and worst-window evidence instead.
 If evidence is insufficient, keep schema and say evidence is insufficient in evidence field.
 """;
     }
@@ -180,6 +272,7 @@ Create coaching JSON from this evidence summary.
 Constraints:
 - feedback count must be between 5 and 10.
 - every feedback item must reference evidence and a time_range_ms from available ranges.
+- do not treat missing transcript as an error.
 - do not invent facts outside provided evidence.
 - drills should be practical.
 EvidenceSummary JSON:
@@ -210,24 +303,47 @@ public sealed class LlmCoachingResult
     public LlmCoachingResponse? Response { get; private set; }
     public string? MinifiedJson { get; private set; }
     public List<string> Errors { get; private set; } = [];
+    public string Provider { get; private set; } = "OpenAI";
+    public string Model { get; private set; } = string.Empty;
+    public string? ReasoningEffort { get; private set; }
+    public string? RequestSourcePath { get; private set; }
 
-    public static LlmCoachingResult Success(LlmCoachingResponse response, string minifiedJson)
+    public static LlmCoachingResult Success(
+        LlmCoachingResponse response,
+        string minifiedJson,
+        string provider,
+        string model,
+        string? reasoningEffort,
+        string? requestSourcePath)
     {
         return new LlmCoachingResult
         {
             IsValid = true,
             Response = response,
             MinifiedJson = minifiedJson,
-            Errors = []
+            Errors = [],
+            Provider = provider,
+            Model = model,
+            ReasoningEffort = reasoningEffort,
+            RequestSourcePath = requestSourcePath
         };
     }
 
-    public static LlmCoachingResult Failure(List<string> errors)
+    public static LlmCoachingResult Failure(
+        List<string> errors,
+        string provider = "OpenAI",
+        string model = "",
+        string? reasoningEffort = null,
+        string? requestSourcePath = null)
     {
         return new LlmCoachingResult
         {
             IsValid = false,
-            Errors = errors
+            Errors = errors,
+            Provider = provider,
+            Model = model,
+            ReasoningEffort = reasoningEffort,
+            RequestSourcePath = requestSourcePath
         };
     }
 }

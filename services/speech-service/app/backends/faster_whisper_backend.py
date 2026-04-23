@@ -24,10 +24,18 @@ class FasterWhisperBackend(BaseAsrBackend):
         logger: logging.Logger,
         device: str = "auto",
         compute_type: str = "default",
+        cpu_threads: int = 4,
+        num_workers: int = 1,
+        download_root: str | None = None,
+        strict_quality_mode: bool = True,
     ) -> None:
         self._logger = logger
         self._device = device
         self._compute_type = compute_type
+        self._cpu_threads = cpu_threads
+        self._num_workers = num_workers
+        self._download_root = download_root
+        self._strict_quality_mode = strict_quality_mode
         self._models: dict[str, Any] = {}
         self._locks: dict[str, asyncio.Lock] = {}
 
@@ -52,7 +60,14 @@ class FasterWhisperBackend(BaseAsrBackend):
             try:
                 model = await loop.run_in_executor(
                     None,
-                    lambda: _WhisperModel(model_name, device=self._device, compute_type=self._compute_type),
+                    lambda: _WhisperModel(
+                        model_name,
+                        device=self._device,
+                        compute_type=self._compute_type,
+                        cpu_threads=self._cpu_threads,
+                        num_workers=self._num_workers,
+                        download_root=self._download_root,
+                    ),
                 )
             except Exception as exc:
                 self._logger.error(
@@ -66,6 +81,12 @@ class FasterWhisperBackend(BaseAsrBackend):
                 raise TranscriptionModelError(f"Failed to load speech model '{model_name}'.") from exc
 
             self._models[model_name] = model
+            self._logger.info(_json_log("backend_model_warmup_start", backend="faster_whisper", model=model_name))
+            try:
+                await loop.run_in_executor(None, lambda: _warmup_model(model))
+                self._logger.info(_json_log("backend_model_warmup_complete", backend="faster_whisper", model=model_name))
+            except Exception as exc:
+                self._logger.error(_json_log("backend_model_warmup_failed", backend="faster_whisper", model=model_name, error=str(exc)))
             self._logger.info(_json_log("backend_model_load_complete", backend="faster_whisper", model=model_name))
 
     def is_model_ready(self, model_name: str) -> bool:
@@ -96,6 +117,8 @@ class FasterWhisperBackend(BaseAsrBackend):
         duration_ms = max(1, end_ms - start_ms)
         duration_sec = duration_ms / 1000.0
 
+        del use_vad  # Segmentation is handled by the processor loop; Whisper's internal VAD is disabled.
+
         if len(audio_bytes) < 2:
             return {
                 "segments": [],
@@ -112,8 +135,10 @@ class FasterWhisperBackend(BaseAsrBackend):
                     wav_buffer,
                     language=language,
                     task=task,
-                    beam_size=1,
-                    vad_filter=use_vad,
+                    beam_size=5,
+                    vad_filter=False,
+                    condition_on_previous_text=False,
+                    no_speech_threshold=0.7,
                 )
                 return list(segments), info
 
@@ -134,11 +159,17 @@ class FasterWhisperBackend(BaseAsrBackend):
             raise TranscriptionModelError("Speech model failed while transcribing audio.") from exc
 
         segments_out: list[dict[str, Any]] = []
+        kept_segments_raw: list[Any] = []
         all_words: list[str] = []
+        dropped_segments = 0
         for seg in segments_raw:
             seg_text = (seg.text or "").strip()
             if not seg_text:
                 continue
+            if not _should_keep_segment(seg, seg_text):
+                dropped_segments += 1
+                continue
+            kept_segments_raw.append(seg)
             all_words.extend(seg_text.split())
             segments_out.append(
                 {
@@ -147,6 +178,13 @@ class FasterWhisperBackend(BaseAsrBackend):
                     "text": seg_text,
                 }
             )
+
+        window_suppressed = False
+        if self._strict_quality_mode and _should_suppress_window(kept_segments_raw):
+            dropped_segments += len(segments_out)
+            segments_out = []
+            all_words = []
+            window_suppressed = True
 
         word_count = len(all_words)
         wpm = int(round(word_count * 60.0 / max(duration_sec, 0.1))) if word_count else 0
@@ -172,6 +210,19 @@ class FasterWhisperBackend(BaseAsrBackend):
         }
         filler_count = sum(1 for word in all_words if word.lower().strip(".,!?") in filler_words)
 
+        if dropped_segments:
+            self._logger.info(
+                _json_log(
+                    "backend_segments_filtered",
+                    backend="faster_whisper",
+                    model=model_name,
+                    language=language,
+                    task=task,
+                    kept_segments=len(segments_out),
+                    dropped_segments=dropped_segments,
+                )
+            )
+
         return {
             "segments": segments_out,
             "stats": {
@@ -179,6 +230,12 @@ class FasterWhisperBackend(BaseAsrBackend):
                 "filler_count": filler_count,
                 "pause_count": 0,
                 "pause_ms": 0,
+            },
+            "meta": {
+                "strict_quality_mode": self._strict_quality_mode,
+                "filtered_segments": dropped_segments,
+                "window_suppressed": window_suppressed,
+                "empty_result": bool(segments_raw) and not segments_out,
             },
         }
 
@@ -208,6 +265,101 @@ class FasterWhisperBackend(BaseAsrBackend):
             "start_ms": start_ms,
             "end_ms": end_ms,
         }
+
+
+def _warmup_model(model: Any) -> None:
+    """1s sessiz ses ile CUDA kernel'larını derleyerek ilk istek latency'sini sıfırlar.
+    Generator tüketilmezse CTranslate2 hiç op çalıştırmaz; list() zorunlu."""
+    silent_pcm = bytes(16000 * 2)  # 1s, 16kHz mono PCM16, sıfır baytlar
+    wav_bytes = _pcm16_to_wav(silent_pcm)
+    wav_buffer = io.BytesIO(wav_bytes)
+    segments, _ = model.transcribe(
+        wav_buffer,
+        language="en",
+        task="transcribe",
+        beam_size=5,
+        vad_filter=False,
+        condition_on_previous_text=False,
+    )
+    list(segments)
+
+
+def _should_keep_segment(segment: Any, text: str) -> bool:
+    words = text.split()
+    word_count = len(words)
+    avg_logprob = _safe_float(getattr(segment, "avg_logprob", None))
+    no_speech_prob = _safe_float(getattr(segment, "no_speech_prob", None))
+    compression_ratio = _safe_float(getattr(segment, "compression_ratio", None))
+    duration_sec = max(
+        0.0,
+        _safe_float(getattr(segment, "end", 0.0)) - _safe_float(getattr(segment, "start", 0.0)),
+    )
+
+    if no_speech_prob >= 0.95 and word_count <= 8:
+        return False
+
+    if no_speech_prob >= 0.88 and word_count <= 6:
+        return False
+
+    if avg_logprob <= -1.5 and word_count <= 8:
+        return False
+
+    if avg_logprob <= -1.1 and word_count <= 6:
+        return False
+
+    if compression_ratio >= 2.4 and avg_logprob <= -0.7:
+        return False
+
+    if compression_ratio >= 2.8 and avg_logprob <= -0.9:
+        return False
+
+    if duration_sec >= 1.2 and word_count <= 1 and no_speech_prob >= 0.85:
+        return False
+
+    if duration_sec <= 1.4 and word_count <= 3 and no_speech_prob >= 0.82 and avg_logprob <= -0.8:
+        return False
+
+    return True
+
+
+def _should_suppress_window(segments: list[Any]) -> bool:
+    if not segments:
+        return False
+
+    total_words = 0
+    highest_no_speech = 0.0
+    lowest_logprob = 0.0
+    all_short = True
+    all_compressed = True
+    for seg in segments:
+        seg_text = (getattr(seg, "text", "") or "").strip()
+        word_count = len(seg_text.split())
+        total_words += word_count
+        no_speech_prob = _safe_float(getattr(seg, "no_speech_prob", None))
+        avg_logprob = _safe_float(getattr(seg, "avg_logprob", None))
+        compression_ratio = _safe_float(getattr(seg, "compression_ratio", None))
+        highest_no_speech = max(highest_no_speech, no_speech_prob)
+        lowest_logprob = min(lowest_logprob, avg_logprob)
+        all_short = all_short and word_count <= 3
+        all_compressed = all_compressed and compression_ratio >= 2.2
+
+    if total_words <= 3 and highest_no_speech >= 0.72:
+        return True
+
+    if total_words <= 5 and highest_no_speech >= 0.58 and lowest_logprob <= -0.85:
+        return True
+
+    if total_words <= 6 and all_short and all_compressed and lowest_logprob <= -0.6:
+        return True
+
+    return False
+
+
+def _safe_float(value: Any) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def _pcm16_to_wav(pcm_bytes: bytes, sample_rate: int = 16000, channels: int = 1) -> bytes:

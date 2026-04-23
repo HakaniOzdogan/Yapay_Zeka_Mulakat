@@ -28,6 +28,8 @@ FastAPI WebSocket transcription service for realtime interview sessions.
 - `GET /health` -> basic liveliness
 - `GET /health/ready` -> readiness with fields:
   - `modelLoaded`
+  - `failureReason`
+  - `failureDetail`
   - `activeSessions`
   - `maxConcurrentSessions`
   - `uptimeSec`
@@ -58,13 +60,23 @@ Required for runtime behavior tuning:
 
 - `MAX_CONCURRENT_SESSIONS` (default `10`)
 - `MAX_QUEUE_MESSAGES_PER_CONN` (default `50`)
-- `MAX_AUDIO_BUFFER_MS_PER_CONN` (default `30000`)
-- `CLIENT_IDLE_TIMEOUT_SEC` (default `20`)
-- `TRANSCRIBE_TIMEOUT_SEC` (default `30`)
-- `VAD_SILENCE_MS` (default `900`)
+- `MAX_AUDIO_BUFFER_MS_PER_CONN` (default `15000`)
+- `CLIENT_IDLE_TIMEOUT_SEC` (default `60`)
+- `TRANSCRIBE_TIMEOUT_SEC` (default `20`)
+- `VAD_SILENCE_MS` (default `850`)
 - `VAD_ENERGY_THRESHOLD` (default `0.008`)
-- `PARTIAL_EMIT_INTERVAL_MS` (default `1000`)
-- `MODEL` (default `small`)
+- `VAD_MIN_SPEECH_MS` (default `350`)
+- `VAD_MIN_SPEECH_RATIO` (default `0.20`)
+- `VAD_DYNAMIC_THRESHOLD_MULTIPLIER` (default `2.4`)
+- `STREAM_DECODE_INTERVAL_MS` (default `750`)
+- `STREAM_DECODE_OVERLAP_MS` (default `800`)
+- `STREAM_MAX_ACTIVE_WINDOW_MS` (default `6000`)
+- `STREAM_COMMIT_AGREEMENT_PASSES` (default `2`)
+- `SPEECH_VAD_BACKEND` (default `silero`)
+- `SPEECH_VAD_FALLBACK` (default `energy`)
+- `MODEL` (default `large-v3-turbo`)
+- `SPEECH_COMPUTE_TYPE` (default `int8`)
+- `SPEECH_DEVICE` (default `cpu`)
 
 ## Local Run
 
@@ -73,10 +85,22 @@ pip install -r requirements.txt
 uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
+Test dependencies:
+
+```bash
+pip install -r tests/requirements.txt
+pytest tests
+```
+
 ## Tuning Notes
 
 - Larger models and CPU-only deployments increase transcription latency.
+- GPU yoksa `float16` kullanmayin. CPU varsayilani `SPEECH_COMPUTE_TYPE=int8` ve `SPEECH_DEVICE=cpu` olmalidir.
+- GPU kullanilacaksa `float16` veya `int8_float16` ayarlari bilincli olarak secilmeli ve hostta NVIDIA driver/toolkit hazir olmalidir.
 - If queue drops increase, reduce client chunk rate, increase worker capacity, or reduce model size.
 - If readiness is healthy but final latency is high, tune `VAD_SILENCE_MS` and `MAX_AUDIO_BUFFER_MS_PER_CONN` conservatively.
+- If transcript starts hallucinating on room noise, first raise `VAD_MIN_SPEECH_MS` or `VAD_MIN_SPEECH_RATIO` before raising `VAD_ENERGY_THRESHOLD`.
+- Stable live transcript uses overlap + 2-pass agreement. Lower `STREAM_DECODE_INTERVAL_MS` for faster partials, or raise `STREAM_COMMIT_AGREEMENT_PASSES` for stricter commits.
+- `SPEECH_VAD_BACKEND=silero` is preferred. If it cannot initialize at runtime, the service logs a warning and falls back to the adaptive energy gate.
 - For long-running streams, keep `MAX_AUDIO_BUFFER_MS_PER_CONN` bounded; when exceeded, service flushes current buffer to avoid unbounded memory growth.
 - `TRANSCRIBE_TIMEOUT_SEC` protects stuck transcribe calls; timeout errors are logged and session continues.

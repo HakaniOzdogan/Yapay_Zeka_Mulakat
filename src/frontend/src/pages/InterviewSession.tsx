@@ -5,7 +5,18 @@ import { initMediaPipe, detectLandmarks, isMediaPipeReady } from '../services/Me
 import { MetricsComputer, Metrics, BehaviorStats } from '../services/MetricsComputer'
 import { generateCoachingHints, CoachingHint } from '../services/CoachingHints'
 import { AudioAnalyzer } from '../services/AudioAnalyzer'
-import { connectStreamingAsr, StreamingAsrConnection, StreamingAsrStatus } from '../speech/streamingAsr'
+import {
+  connectStreamingAsr,
+  getSpeechModelLabel,
+  getSpeechReadinessMessage,
+  getSpeechRetryNotice,
+  getStreamingAsrReadiness,
+  StreamingAsrConnection,
+  StreamingAsrError,
+  SpeechReadinessReason,
+  StreamingAsrStatus,
+  SpeechDiagnostics
+} from '../speech/streamingAsr'
 import { SessionTransport, SessionTransportStats } from '../services/SessionTransport'
 import { FixedRollingBuffer } from '../vision/buffer'
 import {
@@ -31,12 +42,119 @@ const ROLLING_SECONDS = 5
 const APPROX_FPS = 30
 const VISION_BUFFER_SIZE = ROLLING_SECONDS * APPROX_FPS
 const METRIC_SMOOTH_ALPHA = 0.2
+const ASR_BOOTSTRAP_RETRY_MS = 5000
 
 interface WarningHistoryItem {
   id: string
   type: 'warning' | 'info'
   message: string
   time: string
+}
+
+type AudioActivityState =
+  | 'idle'
+  | 'capturing'
+  | 'receiving-partials'
+  | 'awaiting-final'
+  | 'finalized-recently'
+  | 'speech-unavailable'
+
+const ASR_STATUS_LABELS: Record<StreamingAsrStatus, string> = {
+  connecting: 'STARTING',
+  connected: 'LIVE',
+  reconnecting: 'RETRYING',
+  error: 'ISSUE',
+  stopped: 'STOPPED'
+}
+
+const AUDIO_ACTIVITY_LABELS: Record<AudioActivityState, string> = {
+  idle: 'Idle',
+  capturing: 'Listening for speech',
+  'receiving-partials': 'Receiving live partials',
+  'awaiting-final': 'Audio received, waiting for a short pause',
+  'finalized-recently': 'Recent finalized transcript received',
+  'speech-unavailable': 'Speech service unavailable'
+}
+
+function formatTranscriptActivity(timestampMs: number | null, now: Date): string {
+  if (!timestampMs) return 'not yet'
+  const deltaSeconds = Math.max(0, Math.round((now.getTime() - timestampMs) / 1000))
+  const clockLabel = new Date(timestampMs).toLocaleTimeString('tr-TR', {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit'
+  })
+  return deltaSeconds === 0 ? `${clockLabel} (just now)` : `${clockLabel} (${deltaSeconds}s ago)`
+}
+
+function deriveAudioActivityState(params: {
+  isRecording: boolean
+  asrStatus: StreamingAsrStatus
+  speechReady: boolean | null
+  lastAudioChunkAt: number | null
+  lastPartialAt: number | null
+  lastFinalAt: number | null
+  nowMs: number
+}): AudioActivityState {
+  const {
+    isRecording,
+    asrStatus,
+    speechReady,
+    lastAudioChunkAt,
+    lastPartialAt,
+    lastFinalAt,
+    nowMs
+  } = params
+
+  if (!isRecording) return 'idle'
+  if (speechReady === false || asrStatus === 'error') return 'speech-unavailable'
+  if (lastFinalAt && nowMs - lastFinalAt <= 6000) return 'finalized-recently'
+  if (lastPartialAt && nowMs - lastPartialAt <= 5000) return 'receiving-partials'
+  if (lastAudioChunkAt && nowMs - lastAudioChunkAt <= 5000) return 'awaiting-final'
+  return 'capturing'
+}
+
+function normalizeTranscriptText(text: string): string {
+  return text.trim().toLocaleLowerCase('tr-TR').replace(/\s+/g, ' ')
+}
+
+function appendUniqueTranscriptLines(previous: string[], nextLines: string[]): string[] {
+  const merged = [...previous]
+  for (const line of nextLines) {
+    const trimmed = line.trim()
+    if (!trimmed) continue
+    const lastLine = merged.length > 0 ? merged[merged.length - 1] : null
+    if (lastLine && normalizeTranscriptText(lastLine) === normalizeTranscriptText(trimmed)) {
+      continue
+    }
+    merged.push(trimmed)
+  }
+  return merged.slice(-5)
+}
+
+function hashTranscriptSeed(seed: string, offset: number): string {
+  let hash = 0x811c9dc5 ^ offset
+  for (let i = 0; i < seed.length; i += 1) {
+    hash ^= seed.charCodeAt(i)
+    hash = Math.imul(hash, 0x01000193)
+  }
+  return (hash >>> 0).toString(16).padStart(8, '0')
+}
+
+function buildDeterministicTranscriptSegmentId(startMs: number, endMs: number, text: string): string {
+  const normalizedText = normalizeTranscriptText(text)
+  const seed = `${startMs}:${endMs}:${normalizedText}`
+  const part1 = hashTranscriptSeed(seed, 0)
+  const part2 = hashTranscriptSeed(seed, 1)
+  const part3 = hashTranscriptSeed(seed, 2)
+  const part4 = hashTranscriptSeed(seed, 3)
+  return [
+    part1,
+    part2.slice(0, 4),
+    `5${part2.slice(1, 4)}`,
+    `${((parseInt(part3[0], 16) & 0x3) | 0x8).toString(16)}${part3.slice(1, 4)}`,
+    `${part3.slice(4)}${part4}`
+  ].join('-')
 }
 
 function InterviewSession() {
@@ -92,8 +210,16 @@ function InterviewSession() {
   const [asrStatus, setAsrStatus] = useState<StreamingAsrStatus>('stopped')
   const [asrError, setAsrError] = useState<string | null>(null)
   const [asrNotice, setAsrNotice] = useState<string | null>(null)
+  const [speechReady, setSpeechReady] = useState<boolean | null>(null)
+  const [speechReadinessReason, setSpeechReadinessReason] = useState<SpeechReadinessReason | null>(null)
+  const [speechReadyMessage, setSpeechReadyMessage] = useState<string | null>(null)
+  const [lastPartialAt, setLastPartialAt] = useState<number | null>(null)
+  const [lastFinalAt, setLastFinalAt] = useState<number | null>(null)
+  const [lastAudioChunkAt, setLastAudioChunkAt] = useState<number | null>(null)
+  const [audioActivityState, setAudioActivityState] = useState<AudioActivityState>('idle')
   const [clockNow, setClockNow] = useState(new Date())
   const [warningHistory, setWarningHistory] = useState<WarningHistoryItem[]>([])
+  const [speechDiagnostics, setSpeechDiagnostics] = useState<SpeechDiagnostics | null>(null)
   const [visionMetrics, setVisionMetrics] = useState<VisionMetrics>({
     eyeContact: 0,
     posture: 0,
@@ -114,6 +240,7 @@ function InterviewSession() {
   const audioAnalyzerRef = useRef<AudioAnalyzer | null>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const audioChunksRef = useRef<Blob[]>([])
+  const recordingMimeTypeRef = useRef('audio/webm')
   const frameCountRef = useRef(0)
   const mediaStreamRef = useRef<MediaStream | null>(null)
   const lastPoseLandmarksRef = useRef<any[] | null>(null)
@@ -123,6 +250,8 @@ function InterviewSession() {
   const behaviorStatsRef = useRef<BehaviorStats>(behaviorStats)
   const isRecordingRef = useRef(false)
   const asrConnectionRef = useRef<StreamingAsrConnection | null>(null)
+  const asrBootstrapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const asrBootstrapInFlightRef = useRef(false)
   const sessionTransportRef = useRef<SessionTransport | null>(null)
   const transportStatsIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const warningSeenAtRef = useRef<Record<string, number>>({})
@@ -162,7 +291,25 @@ function InterviewSession() {
   }, [])
 
   useEffect(() => {
+    const nextState = deriveAudioActivityState({
+      isRecording,
+      asrStatus,
+      speechReady,
+      lastAudioChunkAt,
+      lastPartialAt,
+      lastFinalAt,
+      nowMs: clockNow.getTime()
+    })
+
+    setAudioActivityState(prev => prev === nextState ? prev : nextState)
+  }, [asrStatus, clockNow, isRecording, lastAudioChunkAt, lastFinalAt, lastPartialAt, speechReady])
+
+  useEffect(() => {
     return () => {
+      if (asrBootstrapTimerRef.current) {
+        clearTimeout(asrBootstrapTimerRef.current)
+        asrBootstrapTimerRef.current = null
+      }
       closeMediaCapture()
       void asrConnectionRef.current?.stop()
       asrConnectionRef.current = null
@@ -237,14 +384,44 @@ function InterviewSession() {
     })
   }
 
+  const resetTranscriptDiagnostics = () => {
+    setSpeechReady(null)
+    setSpeechReadinessReason(null)
+    setSpeechReadyMessage(null)
+    setSpeechDiagnostics(null)
+    setLastPartialAt(null)
+    setLastFinalAt(null)
+    setLastAudioChunkAt(null)
+    setAudioActivityState('idle')
+  }
+
+  const clearAsrBootstrapRetry = () => {
+    if (asrBootstrapTimerRef.current) {
+      clearTimeout(asrBootstrapTimerRef.current)
+      asrBootstrapTimerRef.current = null
+    }
+  }
+
+  const applySpeechReadiness = (ready: boolean, reason: SpeechReadinessReason, detail?: string | null) => {
+    setSpeechReady(ready)
+    setSpeechReadinessReason(reason)
+    setSpeechReadyMessage(getSpeechReadinessMessage(reason, detail))
+  }
+
+  const scheduleAsrBootstrapRetry = (stream: MediaStream, notice: string | null) => {
+    if (!isRecordingRef.current || asrBootstrapTimerRef.current) return
+    setAsrStatus('reconnecting')
+    setAsrNotice(notice)
+    asrBootstrapTimerRef.current = setTimeout(() => {
+      asrBootstrapTimerRef.current = null
+      void startStreamingAsr(stream)
+    }, ASR_BOOTSTRAP_RETRY_MS)
+  }
+
   const startRecording = async () => {
     try {
-      if (!isMediaPipeReady()) {
-        alert('MediaPipe not ready')
-        return
-      }
-
       resetVisionPipeline()
+      resetTranscriptDiagnostics()
       sessionStartAtMsRef.current = performance.now()
 
       if (sessionId) {
@@ -282,6 +459,7 @@ function InterviewSession() {
       // Setup audio recording (best-effort; don't block live video if recorder fails)
       audioChunksRef.current = []
       mediaRecorderRef.current = null
+      recordingMimeTypeRef.current = 'audio/webm'
       try {
         const audioTracks = stream.getAudioTracks()
         if (audioTracks.length > 0 && typeof MediaRecorder !== 'undefined') {
@@ -295,6 +473,7 @@ function InterviewSession() {
           mediaRecorderRef.current = supportedMimeType
             ? new MediaRecorder(audioOnlyStream, { mimeType: supportedMimeType })
             : new MediaRecorder(audioOnlyStream)
+          recordingMimeTypeRef.current = mediaRecorderRef.current.mimeType || supportedMimeType || 'audio/webm'
 
           mediaRecorderRef.current.ondataavailable = (e) => {
             if (e.data.size > 0) {
@@ -322,6 +501,9 @@ function InterviewSession() {
       setWarningHistory([])
       setAsrError(null)
       setAsrNotice(null)
+      if (!isMediaPipeReady()) {
+        setAsrNotice('Vision modeli hazirlaniyor. Bu sirada audio transcript baglantisi devam edebilir.')
+      }
       setIsRecording(true)
       isRecordingRef.current = true
       await startStreamingAsr(stream)
@@ -354,6 +536,8 @@ function InterviewSession() {
   }
 
   const stopRecording = async () => {
+    clearAsrBootstrapRetry()
+    asrBootstrapInFlightRef.current = false
     const transportStopPromise = sessionTransportRef.current?.stop({ flush: true }) ?? Promise.resolve()
     sessionTransportRef.current = null
     if (transportStatsIntervalRef.current) {
@@ -365,6 +549,7 @@ function InterviewSession() {
     asrConnectionRef.current = null
     setAsrStatus('stopped')
     setAsrNotice(null)
+    resetTranscriptDiagnostics()
 
     let recorderStopPromise: Promise<unknown> = Promise.resolve()
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
@@ -401,18 +586,70 @@ function InterviewSession() {
     await recorderStopPromise
   }
 
-  const startStreamingAsr = async (stream: MediaStream) => {
-    if (!sessionId) return
+  const recoverStreamingAsr = async (stream: MediaStream, error: StreamingAsrError) => {
+    if (error.code === 'microphone_permission_denied') {
+      setAsrStatus('error')
+      setAsrError(error.message)
+      applySpeechReadiness(false, 'startup_failed', error.message)
+      return
+    }
 
+    const previousConnection = asrConnectionRef.current
+    asrConnectionRef.current = null
+
+    if (previousConnection) {
+      try {
+        await previousConnection.stop()
+      } catch (stopError) {
+        console.warn('Failed to stop previous ASR connection cleanly:', stopError)
+      }
+    }
+
+    if (!isRecordingRef.current) {
+      return
+    }
+
+    const speechUrl = import.meta.env.VITE_SPEECH_URL || 'http://localhost:8000'
+    const readiness = await getStreamingAsrReadiness(speechUrl)
+    setAsrError(null)
+
+    if (readiness.ready) {
+      applySpeechReadiness(true, 'ready')
+      scheduleAsrBootstrapRetry(stream, 'Canli transcript baglantisi koptu. Yeniden baglaniliyor.')
+      return
+    }
+
+    applySpeechReadiness(false, readiness.reason, readiness.details?.failureDetail || error.message)
+    scheduleAsrBootstrapRetry(stream, getSpeechRetryNotice(readiness.reason))
+  }
+
+  const startStreamingAsr = async (stream: MediaStream) => {
+    if (!sessionId || !isRecordingRef.current || asrBootstrapInFlightRef.current || asrConnectionRef.current) return
+
+    const speechUrl = import.meta.env.VITE_SPEECH_URL || 'http://localhost:8000'
+    clearAsrBootstrapRetry()
+    asrBootstrapInFlightRef.current = true
     setAsrError(null)
     setAsrNotice(null)
-    setAsrStatus('connecting')
-    setLiveTranscriptInterim('')
-    setLiveTranscriptLines([])
+    setAsrStatus((prev) => prev === 'reconnecting' ? 'reconnecting' : 'connecting')
 
     try {
-      asrConnectionRef.current = await connectStreamingAsr({
-        url: import.meta.env.VITE_SPEECH_URL || 'http://localhost:8000',
+      const readiness = await getStreamingAsrReadiness(speechUrl)
+
+      if (!isRecordingRef.current) {
+        return
+      }
+
+      if (!readiness.ready) {
+        applySpeechReadiness(false, readiness.reason, readiness.details?.failureDetail || readiness.message)
+        scheduleAsrBootstrapRetry(stream, getSpeechRetryNotice(readiness.reason))
+        return
+      }
+
+      applySpeechReadiness(true, 'ready')
+
+      const connection = await connectStreamingAsr({
+        url: speechUrl,
         sessionId,
         lang: session?.language === 'en' ? 'en' : 'tr',
         task: 'transcribe',
@@ -421,35 +658,51 @@ function InterviewSession() {
         onStatus: (status) => {
           setAsrStatus(status)
           if (status === 'connected') {
+            applySpeechReadiness(true, 'ready')
             setAsrError(null)
             setAsrNotice(null)
           }
         },
-        onError: (message) => {
-          setAsrStatus('error')
-          setAsrError(message)
+        onAudioChunk: () => {
+          setLastAudioChunkAt(Date.now())
+        },
+        onError: (error) => {
+          void recoverStreamingAsr(stream, error)
         },
         onNotice: (message) => {
           setAsrNotice(message)
         },
+        onDiagnostics: (diag) => {
+          setSpeechDiagnostics(diag)
+        },
         onPartial: (text) => {
-          setLiveTranscriptInterim(text.trim())
+          const trimmed = text.trim()
+          setLiveTranscriptInterim(trimmed)
+          if (trimmed.length > 0) {
+            setLastPartialAt(Date.now())
+          }
         },
         onFinal: (payload) => {
+          applySpeechReadiness(true, 'ready')
           setAsrNotice(null)
           setLiveTranscriptInterim('')
+          setLastFinalAt(Date.now())
           const finalizedLines = payload.segments
             .map((segment) => segment.text.trim())
             .filter((line) => line.length > 0)
 
           if (finalizedLines.length > 0) {
-            setLiveTranscriptLines((prev) => [...prev, ...finalizedLines].slice(-5))
+            setLiveTranscriptLines((prev) => appendUniqueTranscriptLines(prev, finalizedLines))
           }
 
           const ingestSegments = payload.segments
             .filter((segment) => segment.text && segment.text.trim().length > 0)
             .map((segment) => ({
-              clientSegmentId: crypto.randomUUID(),
+              clientSegmentId: buildDeterministicTranscriptSegmentId(
+                Math.max(0, Math.round(segment.start_ms)),
+                Math.max(0, Math.round(segment.end_ms)),
+                segment.text.trim()
+              ),
               startMs: Math.max(0, Math.round(segment.start_ms)),
               endMs: Math.max(0, Math.round(segment.end_ms)),
               text: segment.text.trim()
@@ -462,13 +715,26 @@ function InterviewSession() {
           })
         }
       })
+
+      if (!isRecordingRef.current) {
+        await connection.stop()
+        return
+      }
+
+      asrConnectionRef.current = connection
     } catch (error) {
-      setAsrStatus('error')
+      if (!isRecordingRef.current) {
+        return
+      }
+
       const message = error instanceof Error && error.message
         ? error.message
         : 'Live transcript could not start. Vision can continue.'
-      setAsrError(message)
+      applySpeechReadiness(false, 'startup_failed', message)
+      scheduleAsrBootstrapRetry(stream, getSpeechRetryNotice('startup_failed'))
       console.warn('Streaming ASR startup failed:', error)
+    } finally {
+      asrBootstrapInFlightRef.current = false
     }
   }
 
@@ -661,9 +927,17 @@ function InterviewSession() {
     setUploading(true)
     try {
       // Create FormData with audio blob
-      const audioBlob = new Blob(chunks, { type: 'audio/webm' })
+      const recordingMimeType = recordingMimeTypeRef.current || 'audio/webm'
+      const audioBlob = new Blob(chunks, { type: recordingMimeType })
+      const fileExtension = recordingMimeType.includes('ogg')
+        ? 'ogg'
+        : recordingMimeType.includes('mpeg')
+          ? 'mp3'
+          : recordingMimeType.includes('mp4')
+            ? 'm4a'
+            : 'webm'
       const formData = new FormData()
-      formData.append('file', audioBlob, 'answer.webm')
+      formData.append('file', audioBlob, `answer.${fileExtension}`)
 
       // Transcribe using speech-service
       const transcriptResult = await ApiService.transcribeAudio(formData, session?.language || 'tr')
@@ -776,6 +1050,7 @@ function InterviewSession() {
       setLiveTranscriptInterim('')
       setAsrNotice(null)
       setAsrError(null)
+      resetTranscriptDiagnostics()
       warningSeenAtRef.current = {}
       setWarningHistory([])
     } else {
@@ -815,6 +1090,60 @@ function InterviewSession() {
   const eyeContactPercent = Math.round(currentMetrics.eyeContact)
   const pacePercent = Math.round(currentMetrics.headStability)
   const sentimentLabel = llmInsight?.summary || `${behaviorStats.currentEmotion} anlatim`
+  const asrStatusLabel = ASR_STATUS_LABELS[asrStatus]
+  const speechModelLabel = getSpeechModelLabel(speechReady, speechReadinessReason)
+  const audioActivityLabel = AUDIO_ACTIVITY_LABELS[audioActivityState]
+  const lastPartialLabel = formatTranscriptActivity(lastPartialAt, clockNow)
+  const lastFinalLabel = formatTranscriptActivity(lastFinalAt, clockNow)
+  const vadChunkTotal = (speechDiagnostics?.vad_voiced_chunks || 0) + (speechDiagnostics?.vad_rejected_chunks || 0)
+  const vadVoicedRatio = vadChunkTotal > 0
+    ? Math.round(((speechDiagnostics?.vad_voiced_chunks || 0) / vadChunkTotal) * 100)
+    : null
+  const vadRejectedRatio = vadChunkTotal > 0
+    ? Math.round(((speechDiagnostics?.vad_rejected_chunks || 0) / vadChunkTotal) * 100)
+    : null
+  const sileroFallbackWarning = speechDiagnostics && !speechDiagnostics.silero_available
+    ? 'Silero aktif degil. Transcript kalite modu su anda energy fallback ile calisiyor.'
+    : null
+  const uploadFormatLabel = speechDiagnostics?.last_upload_container
+    ? `${speechDiagnostics.last_upload_container}${speechDiagnostics.last_upload_codec ? ` / ${speechDiagnostics.last_upload_codec}` : ''}`
+    : '—'
+  const uploadSampleLabel = speechDiagnostics?.last_upload_sample_rate
+    ? `${speechDiagnostics.last_upload_sample_rate} Hz / ${speechDiagnostics.last_upload_channels || '?'} ch`
+    : '—'
+  const speechIssueDetail = (() => {
+    if (!isRecording) return null
+    switch (speechReadinessReason) {
+      case 'unreachable':
+        return 'Speech servisine ulasilamiyor. Docker servisleri ve ag erisimi kontrol edilmeli.'
+      case 'model_loading':
+        return 'Transcript modeli yukleniyor. Hazir oldugunda sayfa yenilemeden otomatik baglanacak.'
+      case 'at_capacity':
+        return 'Tum transcript oturum slotlari dolu. Kisa bir sure sonra yeniden baglanilacak.'
+      case 'startup_failed':
+        return speechReadyMessage || 'Speech modeli baslatilamadi. Sunucu ayarlarini kontrol edin.'
+      default:
+        return asrStatus === 'error' ? (asrError || 'Canli transcript baglantisinda bir sorun olustu.') : null
+    }
+  })()
+  const videoChipLabel = (() => {
+    if (speechReadinessReason === 'startup_failed') return 'Transcript hatasi'
+    if (asrStatus === 'connected') return 'Ses aktif'
+    if (asrStatus === 'reconnecting') return 'Transcript yeniden baglaniyor'
+    if (speechReady === false) return 'Transcript beklemede'
+    return 'Mikrofon hazirlaniyor'
+  })()
+  const transcriptGuidance = (() => {
+    if (!isRecording) return null
+    if (speechReady === false) return null
+    if (asrStatus === 'connected' && audioActivityState === 'awaiting-final') {
+      return 'Ses aliniyor. Final satirlar kisa bir duraksamadan sonra gorunur.'
+    }
+    if (asrStatus === 'connected' && audioActivityState === 'capturing') {
+      return 'Mikrofon canli. Normal sekilde konusun; kisa duraksamalar final transcript satirlarini hizlandirir.'
+    }
+    return null
+  })()
 
   return (
     <div className="page interview-page session-page">
@@ -889,7 +1218,7 @@ function InterviewSession() {
 
           <div className="video-column">
             <div className="video-stage-wrap">
-              <div className="video-chip">{asrStatus === 'connected' ? 'Ses aktif' : 'Mikrofon hazirlaniyor'}</div>
+              <div className="video-chip">{videoChipLabel}</div>
               <div className="video-badge">AI</div>
               <div className="video-stage">
                 <div className="mechanical-clock" title={clockNow.toLocaleTimeString('tr-TR')}>
@@ -910,6 +1239,12 @@ function InterviewSession() {
                     showPoseDetails={showPoseOverlay}
                     showDiagnostics={showDiagnosticsOverlay}
                   />
+                )}
+
+                {isRecording && !mediaReady && (
+                  <div className="camera-placeholder">
+                    <p>Vision modeli hazir degil. Audio transcript bu sirada calismaya devam edebilir.</p>
+                  </div>
                 )}
 
                 {VISION_DEBUG_OVERLAY && isRecording && (
@@ -952,13 +1287,28 @@ function InterviewSession() {
                 <div className="live-transcript-header">
                   Transcript updates
                   <span className={`asr-status-badge status-${asrStatus}`}>
-                    {asrStatus}
+                    {asrStatusLabel}
                   </span>
                 </div>
                 <div className="live-transcript-body">
-                  {asrNotice && !asrError && (
+                  {speechReadyMessage && !asrError && (
+                    <div className="live-transcript-notice">
+                      {speechReadyMessage}
+                    </div>
+                  )}
+                  {asrNotice && !asrError && asrNotice !== speechReadyMessage && (
                     <div className="live-transcript-notice">
                       {asrNotice}
+                    </div>
+                  )}
+                  {transcriptGuidance && !asrError && (
+                    <div className="live-transcript-notice">
+                      {transcriptGuidance}
+                    </div>
+                  )}
+                  {sileroFallbackWarning && !asrError && (
+                    <div className="live-transcript-notice">
+                      {sileroFallbackWarning}
                     </div>
                   )}
                   {asrError && (
@@ -978,6 +1328,151 @@ function InterviewSession() {
                   ))}
                   {liveTranscriptInterim && (
                     <div className="live-transcript-interim">{liveTranscriptInterim}</div>
+                  )}
+                  {(isRecording || speechReadyMessage || lastPartialAt || lastFinalAt) && (
+                    <div className="live-transcript-diagnostics">
+                      <div className="transcript-diag-section">
+                        <div className="transcript-diag-title">Bağlantı Durumu</div>
+                        <div className="transcript-diag-row">
+                          <span className={`diag-dot ${asrStatus === 'connected' ? 'dot-green' : asrStatus === 'error' ? 'dot-red' : 'dot-yellow'}`} />
+                          <span>WebSocket: {asrStatusLabel}</span>
+                        </div>
+                        <div className="transcript-diag-row">
+                          <span className={`diag-dot ${speechReady ? 'dot-green' : speechReady === false ? 'dot-red' : 'dot-yellow'}`} />
+                          <span>Model: {speechModelLabel}</span>
+                        </div>
+                        <div className="transcript-diag-row">
+                          <span>Ses akışı: {audioActivityLabel}</span>
+                        </div>
+                      </div>
+
+                      {speechDiagnostics && (
+                        <div className="transcript-diag-section">
+                          <div className="transcript-diag-title">Sistem Bilgisi</div>
+                          <div className="transcript-diag-grid">
+                            <div className="diag-stat">
+                              <span className="diag-stat-value">{speechDiagnostics.model}</span>
+                              <span className="diag-stat-label">Model</span>
+                            </div>
+                            <div className="diag-stat">
+                              <span className="diag-stat-value">{speechDiagnostics.compute_type}</span>
+                              <span className="diag-stat-label">Compute</span>
+                            </div>
+                            <div className="diag-stat">
+                              <span className="diag-stat-value">{speechDiagnostics.device}</span>
+                              <span className="diag-stat-label">Cihaz</span>
+                            </div>
+                            <div className="diag-stat">
+                              <span className="diag-stat-value">{speechDiagnostics.vad_backend}</span>
+                              <span className="diag-stat-label">VAD</span>
+                            </div>
+                            <div className="diag-stat">
+                              <span className="diag-stat-value">{speechDiagnostics.strict_quality_mode ? 'Strict' : 'Relaxed'}</span>
+                              <span className="diag-stat-label">Kalite modu</span>
+                            </div>
+                            <div className="diag-stat">
+                              <span className="diag-stat-value">{speechDiagnostics.silero_available ? 'Active' : 'Fallback'}</span>
+                              <span className="diag-stat-label">Silero</span>
+                            </div>
+                            <div className="diag-stat">
+                              <span className="diag-stat-value">{speechDiagnostics.audio_input_contract || '—'}</span>
+                              <span className="diag-stat-label">Ses kontrati</span>
+                            </div>
+                            <div className="diag-stat">
+                              <span className="diag-stat-value">
+                                {speechDiagnostics.live_input_sample_rate > 0
+                                  ? `${speechDiagnostics.live_input_sample_rate} Hz / ${speechDiagnostics.live_input_channels} ch`
+                                  : '—'}
+                              </span>
+                              <span className="diag-stat-label">Canli format</span>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {speechDiagnostics && (
+                        <div className="transcript-diag-section">
+                          <div className="transcript-diag-title">Performans</div>
+                          <div className="transcript-diag-grid">
+                            <div className="diag-stat">
+                              <span className="diag-stat-value">{speechDiagnostics.avg_transcribe_latency_ms > 0 ? `${Math.round(speechDiagnostics.avg_transcribe_latency_ms)}ms` : '—'}</span>
+                              <span className="diag-stat-label">Ort. Gecikme</span>
+                            </div>
+                            <div className="diag-stat">
+                              <span className="diag-stat-value">{speechDiagnostics.p95_transcribe_latency_ms > 0 ? `${Math.round(speechDiagnostics.p95_transcribe_latency_ms)}ms` : '—'}</span>
+                              <span className="diag-stat-label">P95 Gecikme</span>
+                            </div>
+                            <div className="diag-stat">
+                              <span className="diag-stat-value">{speechDiagnostics.client_finals_received}</span>
+                              <span className="diag-stat-label">Final</span>
+                            </div>
+                            <div className="diag-stat">
+                              <span className="diag-stat-value">{speechDiagnostics.client_partials_received}</span>
+                              <span className="diag-stat-label">Partial</span>
+                            </div>
+                            <div className="diag-stat">
+                              <span className="diag-stat-value">
+                                {vadChunkTotal > 0 && vadVoicedRatio !== null && vadRejectedRatio !== null
+                                  ? `${vadVoicedRatio}% / ${vadRejectedRatio}%`
+                                  : '-'}
+                              </span>
+                              <span className="diag-stat-label">Voiced / Rejected</span>
+                            </div>
+                            <div className="diag-stat">
+                              <span className="diag-stat-value">{speechDiagnostics.filtered_decode_results_total}</span>
+                              <span className="diag-stat-label">Filtered decodes</span>
+                            </div>
+                            <div className="diag-stat">
+                              <span className="diag-stat-value">{speechDiagnostics.empty_decode_results_total}</span>
+                              <span className="diag-stat-label">Empty decodes</span>
+                            </div>
+                            <div className="diag-stat">
+                              <span className="diag-stat-value">{speechDiagnostics.duplicate_finals_suppressed_total}</span>
+                              <span className="diag-stat-label">Suppressed dupes</span>
+                            </div>
+                            <div className="diag-stat">
+                              <span className="diag-stat-value">{uploadFormatLabel}</span>
+                              <span className="diag-stat-label">Son upload</span>
+                            </div>
+                            <div className="diag-stat">
+                              <span className="diag-stat-value">{uploadSampleLabel}</span>
+                              <span className="diag-stat-label">Upload format</span>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="transcript-diag-section">
+                        <div className="transcript-diag-title">Zaman Çizelgesi</div>
+                        <div className="transcript-diag-row">
+                          <span>Son partial: {lastPartialLabel}</span>
+                        </div>
+                        <div className="transcript-diag-row">
+                          <span>Son final: {lastFinalLabel}</span>
+                        </div>
+                      </div>
+
+                      {speechIssueDetail && (
+                        <div className="diag-error-banner">
+                          <div className="diag-error-title">⚠ Sorun Tespit Edildi</div>
+                          <div className="diag-error-detail">
+                            {!speechReadyMessage || speechReadyMessage.includes('ulasilamiyor')
+                              ? 'Speech servisi konteynerine erişilemiyor. Docker servisleri çalışıyor mu kontrol edin.'
+                              : speechReadyMessage.includes('yukleniyor') || speechReadyMessage.includes('isiniyor')
+                                ? 'Model ilk defa yükleniyor veya ısınıyor. Bu işlem 1-2 dakika sürebilir.'
+                                : speechReadyMessage.includes('dolu')
+                                  ? 'Tüm oturum slotları dolu. Başka bir tarayıcı sekmesinde açık mülakat varsa kapatın.'
+                                  : speechReadyMessage || 'Bilinmeyen hata. Logları kontrol edin.'}
+                          </div>
+                        </div>
+                      )}
+
+                      {isRecording && asrStatus === 'connected' && audioActivityState === 'capturing' && !lastPartialAt && (
+                        <div className="diag-info-banner">
+                          Mikrofon aktif. Ses alınıyor ancak henüz konuşma algılanmadı. Daha net ve yüksek sesle konuşmayı deneyin.
+                        </div>
+                      )}
+                    </div>
                   )}
                 </div>
               </aside>
@@ -1088,4 +1583,3 @@ function InterviewSession() {
 }
 
 export default InterviewSession
-

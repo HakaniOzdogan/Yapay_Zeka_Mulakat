@@ -28,6 +28,7 @@ services:
       Cors__AllowedOrigin: ${FRONTEND_ORIGIN:-http://localhost:5173}
       Telemetry__Enabled: "false"
       Llm__BaseUrl: http://ollama:11434
+      Llm__ApiKey: ${LLM_API_KEY:-ollama}
       Llm__Model: ${LLM_MODEL:-qwen2.5:7b-instruct}
       Llm__TimeoutSeconds: ${LLM_TIMEOUT_SECONDS:-60}
     depends_on:
@@ -80,15 +81,24 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
     environment:
-      MODEL: ${SPEECH_MODEL:-tiny}
+      MODEL: ${SPEECH_MODEL:-medium}
+      SPEECH_PROFILE: ${SPEECH_PROFILE:-auto}
+      SPEECH_COMPUTE_TYPE: ${SPEECH_COMPUTE_TYPE:-int8}
+      SPEECH_DEVICE: ${SPEECH_DEVICE:-cpu}
+      SPEECH_CPU_THREADS: ${SPEECH_CPU_THREADS:-8}
+      SPEECH_NUM_WORKERS: ${SPEECH_NUM_WORKERS:-1}
+    volumes:
+      - speech_model_cache:/root/.cache/huggingface
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health').read()\""]
-      interval: 10s
-      timeout: 5s
-      retries: 10
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8000/health || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 300s
     ports:
       - "${SPEECH_PORT:-8000}:8000"
 
 volumes:
   pgdata:
   ollama_data:
+  speech_model_cache:

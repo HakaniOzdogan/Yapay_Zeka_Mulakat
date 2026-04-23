@@ -1,5 +1,3 @@
-using System.Diagnostics;
-using System.Text.RegularExpressions;
 using InterviewCoach.Api.Services;
 using InterviewCoach.Domain;
 using InterviewCoach.Infrastructure;
@@ -7,7 +5,6 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Options;
 
 namespace InterviewCoach.Api.Controllers;
 
@@ -17,32 +14,19 @@ namespace InterviewCoach.Api.Controllers;
 [SessionOwnership]
 public class TranscriptController : ControllerBase
 {
-    private const int MaxBatchSize = 2000;
-    private const int MaxTextLength = 4000;
-    private const long MaxTimestampMs = 86_400_000;
+    private const int MaxBatchSize = 500;
 
     private readonly ApplicationDbContext _db;
-    private readonly ApiTelemetry _telemetry;
     private readonly ILogger<TranscriptController> _logger;
-    private readonly ITranscriptRedactionService _redactionService;
-    private readonly PrivacyOptions _privacyOptions;
 
-    public TranscriptController(
-        ApplicationDbContext db,
-        ApiTelemetry telemetry,
-        ILogger<TranscriptController> logger,
-        ITranscriptRedactionService redactionService,
-        IOptions<PrivacyOptions> privacyOptions)
+    public TranscriptController(ApplicationDbContext db, ILogger<TranscriptController> logger)
     {
         _db = db;
-        _telemetry = telemetry;
         _logger = logger;
-        _redactionService = redactionService;
-        _privacyOptions = privacyOptions.Value;
     }
 
     /// <summary>
-    /// Ingests and merges transcript segments for a session.
+    /// Ingests a batch of transcript segments (idempotent — duplicates are silently ignored).
     /// </summary>
     [EnableRateLimiting("transcript-batch")]
     [RequestSizeLimit(5 * 1024 * 1024)]
@@ -55,7 +39,8 @@ public class TranscriptController : ControllerBase
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
     public async Task<ActionResult<TranscriptBatchResponse>> IngestTranscriptBatch(
         Guid sessionId,
-        [FromBody] List<TranscriptSegmentIngestDto> segments)
+        [FromBody] List<TranscriptSegmentIngestDto> segments,
+        CancellationToken cancellationToken)
     {
         using var scope = _logger.BeginScope(new Dictionary<string, object?>
         {
@@ -74,271 +59,71 @@ public class TranscriptController : ControllerBase
                 });
         }
 
-        var sessionExists = await _db.Sessions.AnyAsync(s => s.Id == sessionId);
+        var sessionExists = await _db.Sessions.AnyAsync(s => s.Id == sessionId, cancellationToken);
         if (!sessionExists)
             return this.NotFoundProblem($"Session '{sessionId}' was not found.");
 
         if (segments.Count == 0)
-        {
-            return Ok(new TranscriptBatchResponse
-            {
-                Inserted = 0,
-                IgnoredDuplicates = 0,
-                MergedOutputCount = 0
-            });
-        }
+            return Ok(new TranscriptBatchResponse { Inserted = 0, IgnoredDuplicates = 0 });
 
-        var normalized = new List<TranscriptSegmentCandidate>(segments.Count);
-        foreach (var segment in segments)
-        {
-            if (segment.StartMs < 0 || segment.EndMs < 0 || segment.StartMs > MaxTimestampMs || segment.EndMs > MaxTimestampMs)
-            {
-                return this.ValidationProblem(
-                    "One or more validation errors occurred.",
-                    new Dictionary<string, string[]>
-                    {
-                        ["startMs"] = ["startMs and endMs must be within 0..86400000."],
-                        ["endMs"] = ["startMs and endMs must be within 0..86400000."]
-                    });
-            }
+        var clientSegmentIds = segments.Select(s => s.ClientSegmentId).Distinct().ToList();
+        var existingIds = await _db.TranscriptSegments
+            .Where(t => t.SessionId == sessionId && clientSegmentIds.Contains(t.ClientSegmentId))
+            .Select(t => t.ClientSegmentId)
+            .ToListAsync(cancellationToken);
 
-            if (segment.EndMs < segment.StartMs)
-            {
-                return this.ValidationProblem(
-                    "One or more validation errors occurred.",
-                    new Dictionary<string, string[]>
-                    {
-                        ["endMs"] = ["endMs cannot be less than startMs."]
-                    });
-            }
-
-            var text = NormalizeText(segment.Text);
-            if (string.IsNullOrWhiteSpace(text))
-            {
-                return this.ValidationProblem(
-                    "One or more validation errors occurred.",
-                    new Dictionary<string, string[]>
-                    {
-                        ["text"] = ["text cannot be empty."]
-                    });
-            }
-
-            if (text.Length > MaxTextLength)
-            {
-                return this.ValidationProblem(
-                    "One or more validation errors occurred.",
-                    new Dictionary<string, string[]>
-                    {
-                        ["text"] = [$"Text cannot exceed {MaxTextLength} characters."]
-                    });
-            }
-
-            text = ApplyRedactionOnIngest(text);
-
-            normalized.Add(new TranscriptSegmentCandidate
-            {
-                ClientSegmentId = segment.ClientSegmentId,
-                StartMs = segment.StartMs,
-                EndMs = segment.EndMs,
-                Text = text,
-                Confidence = segment.Confidence,
-                ConfidenceSum = segment.Confidence ?? 0,
-                ConfidenceCount = segment.Confidence.HasValue ? 1 : 0
-            });
-        }
-
-        var inputClientIds = normalized.Select(s => s.ClientSegmentId).Distinct().ToList();
-        var existingClientIds = await _db.TranscriptSegments
-            .Where(s => s.SessionId == sessionId && inputClientIds.Contains(s.ClientSegmentId))
-            .Select(s => s.ClientSegmentId)
-            .ToListAsync();
-
-        var seenClientIds = existingClientIds.ToHashSet();
-        var newIncoming = new List<TranscriptSegmentCandidate>(normalized.Count);
+        var seenIds = existingIds.ToHashSet();
+        var toInsert = new List<TranscriptSegment>(segments.Count);
         var ignoredDuplicates = 0;
 
-        foreach (var candidate in normalized)
+        foreach (var dto in segments)
         {
-            if (!seenClientIds.Add(candidate.ClientSegmentId))
+            if (dto.StartMs < 0 || dto.EndMs < dto.StartMs)
+            {
+                return this.ValidationProblem(
+                    "One or more validation errors occurred.",
+                    new Dictionary<string, string[]>
+                    {
+                        ["startMs"] = ["startMs must be non-negative and endMs must be >= startMs."]
+                    });
+            }
+
+            if (!seenIds.Add(dto.ClientSegmentId))
             {
                 ignoredDuplicates++;
                 continue;
             }
 
-            newIncoming.Add(candidate);
-        }
-
-        if (newIncoming.Count == 0)
-        {
-            _telemetry.TranscriptDuplicatesTotal.Add(ignoredDuplicates);
-            _logger.LogInformation(
-                "Transcript batch summary: inserted={inserted}, duplicates={duplicates}, mergedOutputCount={mergedOutputCount}",
-                0,
-                ignoredDuplicates,
-                0);
-            return Ok(new TranscriptBatchResponse
+            toInsert.Add(new TranscriptSegment
             {
-                Inserted = 0,
-                IgnoredDuplicates = ignoredDuplicates,
-                MergedOutputCount = 0
+                Id = Guid.NewGuid(),
+                SessionId = sessionId,
+                ClientSegmentId = dto.ClientSegmentId,
+                StartMs = dto.StartMs,
+                EndMs = dto.EndMs,
+                Text = (dto.Text ?? string.Empty).Trim(),
+                Confidence = dto.Confidence,
+                CreatedAt = DateTime.UtcNow
             });
         }
 
-        var minStart = newIncoming.Min(s => s.StartMs);
-        var maxEnd = newIncoming.Max(s => s.EndMs);
-        var windowStart = Math.Max(0, minStart - 1000);
-        var windowEnd = maxEnd + 1000;
-
-        var existingOverlapping = await _db.TranscriptSegments
-            .Where(s => s.SessionId == sessionId && s.EndMs >= windowStart && s.StartMs <= windowEnd)
-            .ToListAsync();
-
-        var combined = existingOverlapping
-            .Select(s => new TranscriptSegmentCandidate
-            {
-                ClientSegmentId = s.ClientSegmentId,
-                StartMs = s.StartMs,
-                EndMs = s.EndMs,
-                Text = ApplyRedactionOnIngest(NormalizeText(s.Text)),
-                Confidence = s.Confidence,
-                ConfidenceSum = s.Confidence ?? 0,
-                ConfidenceCount = s.Confidence.HasValue ? 1 : 0
-            })
-            .Concat(newIncoming)
-            .OrderBy(s => s.StartMs)
-            .ThenBy(s => s.EndMs)
-            .ToList();
-
-        var merged = MergeCandidates(combined);
-
-        var sw = Stopwatch.StartNew();
-        using var activity = _telemetry.ActivitySource.StartActivity("transcript.batch.merge_transaction", ActivityKind.Internal);
-        activity?.SetTag("session.id", sessionId.ToString());
-
-        await using var tx = await _db.Database.BeginTransactionAsync();
-
-        _db.TranscriptSegments.RemoveRange(existingOverlapping);
-
-        var mergedEntities = merged.Select(m => new TranscriptSegment
+        if (toInsert.Count > 0)
         {
-            Id = Guid.NewGuid(),
-            SessionId = sessionId,
-            ClientSegmentId = m.ClientSegmentId,
-            StartMs = m.StartMs,
-            EndMs = m.EndMs,
-            Text = m.Text,
-            Confidence = m.ConfidenceCount == 0 ? null : m.ConfidenceSum / m.ConfidenceCount,
-            CreatedAt = DateTime.UtcNow
-        }).ToList();
-
-        _db.TranscriptSegments.AddRange(mergedEntities);
-        await _db.SaveChangesAsync();
-        await tx.CommitAsync();
-
-        sw.Stop();
-
-        _telemetry.TranscriptInsertedTotal.Add(newIncoming.Count);
-        _telemetry.TranscriptDuplicatesTotal.Add(ignoredDuplicates);
-
-        activity?.SetTag("inserted.count", newIncoming.Count);
-        activity?.SetTag("duplicates.count", ignoredDuplicates);
-        activity?.SetTag("durationMs", sw.Elapsed.TotalMilliseconds);
+            _db.TranscriptSegments.AddRange(toInsert);
+            await _db.SaveChangesAsync(cancellationToken);
+        }
 
         _logger.LogInformation(
-            "Transcript batch summary: inserted={inserted}, duplicates={duplicates}, mergedOutputCount={mergedOutputCount}",
-            newIncoming.Count,
-            ignoredDuplicates,
-            mergedEntities.Count);
+            "Transcript batch ingest: inserted={inserted}, duplicates={duplicates}",
+            toInsert.Count,
+            ignoredDuplicates);
 
         return Ok(new TranscriptBatchResponse
         {
-            Inserted = newIncoming.Count,
+            Inserted = toInsert.Count,
             IgnoredDuplicates = ignoredDuplicates,
-            MergedOutputCount = mergedEntities.Count
+            MergedOutputCount = toInsert.Count
         });
-    }
-
-    private string ApplyRedactionOnIngest(string text)
-    {
-        if (!_privacyOptions.RedactTranscripts || !_privacyOptions.RedactOnIngest)
-            return text;
-
-        return _redactionService.Redact(text);
-    }
-
-    private static List<TranscriptSegmentCandidate> MergeCandidates(List<TranscriptSegmentCandidate> ordered)
-    {
-        if (ordered.Count == 0)
-            return [];
-
-        var result = new List<TranscriptSegmentCandidate>();
-        var current = TranscriptSegmentCandidate.From(ordered[0]);
-
-        for (var i = 1; i < ordered.Count; i++)
-        {
-            var next = ordered[i];
-            if (ShouldMerge(current, next))
-            {
-                current = Merge(current, next);
-                continue;
-            }
-
-            result.Add(current);
-            current = TranscriptSegmentCandidate.From(next);
-        }
-
-        result.Add(current);
-        return result;
-    }
-
-    private static bool ShouldMerge(TranscriptSegmentCandidate current, TranscriptSegmentCandidate next)
-    {
-        if (next.StartMs <= current.EndMs)
-            return true;
-
-        var gap = next.StartMs - current.EndMs;
-        return gap <= 250 && LooksContinuous(current.Text, next.Text);
-    }
-
-    private static bool LooksContinuous(string currentText, string nextText)
-    {
-        if (string.IsNullOrWhiteSpace(currentText) || string.IsNullOrWhiteSpace(nextText))
-            return false;
-
-        var endsWithSentenceEnd = currentText.EndsWith('.') || currentText.EndsWith('!') || currentText.EndsWith('?');
-        if (endsWithSentenceEnd)
-            return false;
-
-        var firstLetter = nextText.FirstOrDefault(char.IsLetter);
-        return firstLetter != default && char.IsLower(firstLetter);
-    }
-
-    private static TranscriptSegmentCandidate Merge(TranscriptSegmentCandidate current, TranscriptSegmentCandidate next)
-    {
-        var mergedText = string.IsNullOrWhiteSpace(current.Text)
-            ? next.Text
-            : string.IsNullOrWhiteSpace(next.Text)
-                ? current.Text
-                : $"{current.Text} {next.Text}";
-
-        mergedText = NormalizeText(mergedText);
-
-        return new TranscriptSegmentCandidate
-        {
-            ClientSegmentId = current.ClientSegmentId,
-            StartMs = Math.Min(current.StartMs, next.StartMs),
-            EndMs = Math.Max(current.EndMs, next.EndMs),
-            Text = mergedText,
-            Confidence = null,
-            ConfidenceSum = current.ConfidenceSum + next.ConfidenceSum,
-            ConfidenceCount = current.ConfidenceCount + next.ConfidenceCount
-        };
-    }
-
-    private static string NormalizeText(string text)
-    {
-        var trimmed = (text ?? string.Empty).Trim();
-        return Regex.Replace(trimmed, "\\s+", " ");
     }
 }
 
@@ -375,29 +160,4 @@ public class TranscriptBatchResponse
 
     /// <summary>Number of merged segments persisted in the affected time window.</summary>
     public int MergedOutputCount { get; set; }
-}
-
-public class TranscriptSegmentCandidate
-{
-    public Guid ClientSegmentId { get; set; }
-    public long StartMs { get; set; }
-    public long EndMs { get; set; }
-    public string Text { get; set; } = string.Empty;
-    public double? Confidence { get; set; }
-    public double ConfidenceSum { get; set; }
-    public int ConfidenceCount { get; set; }
-
-    public static TranscriptSegmentCandidate From(TranscriptSegmentCandidate source)
-    {
-        return new TranscriptSegmentCandidate
-        {
-            ClientSegmentId = source.ClientSegmentId,
-            StartMs = source.StartMs,
-            EndMs = source.EndMs,
-            Text = source.Text,
-            Confidence = source.Confidence,
-            ConfidenceSum = source.ConfidenceSum,
-            ConfidenceCount = source.ConfidenceCount
-        };
-    }
 }

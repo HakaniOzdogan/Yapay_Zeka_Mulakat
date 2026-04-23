@@ -107,7 +107,10 @@ public class LlmCoachingOrchestrator : ILlmCoachingOrchestrator
         var metadata = new LlmCoachingOrchestrationMetadata
         {
             SourcePath = "failed",
+            ProviderUsed = _llmOptions.Provider,
             ModelUsed = string.Empty,
+            ReasoningEffort = _llmOptions.ReasoningEffort,
+            RequestSourcePath = "/responses",
             Attempts = 0,
             FallbackUsed = false,
             ValidationFailures = 0,
@@ -132,7 +135,10 @@ public class LlmCoachingOrchestrator : ILlmCoachingOrchestrator
             if (cachedSame != null)
             {
                 metadata.SourcePath = "cache_same_input";
+                metadata.ProviderUsed = _llmOptions.Provider;
                 metadata.ModelUsed = cachedSame.Model;
+                metadata.ReasoningEffort = cachedSame.ReasoningEffort;
+                metadata.RequestSourcePath = cachedSame.RequestSourcePath;
 
                 _telemetry.LlmCallsTotal.Add(1, new KeyValuePair<string, object?>("result", "cached"));
                 _logger.LogInformation(
@@ -152,7 +158,7 @@ public class LlmCoachingOrchestrator : ILlmCoachingOrchestrator
 
         var optimizedSummary = optimizationPlan.CompactedSummary;
         var primaryModel = string.IsNullOrWhiteSpace(optimizationPlan.ModelChosen)
-            ? _llmOptions.Model
+            ? _llmOptions.PrimaryModel
             : optimizationPlan.ModelChosen;
         var maxPrimaryAttempts = Math.Max(1, _llmOptions.Retry.MaxAttemptsPrimary);
 
@@ -170,7 +176,10 @@ public class LlmCoachingOrchestrator : ILlmCoachingOrchestrator
             if (attempt.Success)
             {
                 metadata.SourcePath = "primary";
-                metadata.ModelUsed = primaryModel;
+                metadata.ProviderUsed = attempt.Provider;
+                metadata.ModelUsed = attempt.ModelUsed;
+                metadata.ReasoningEffort = attempt.ReasoningEffort;
+                metadata.RequestSourcePath = attempt.RequestSourcePath;
                 metadata.Attempts = attemptNo;
                 metadata.ErrorSummary = null;
 
@@ -178,7 +187,10 @@ public class LlmCoachingOrchestrator : ILlmCoachingOrchestrator
                     sessionId,
                     inputHash,
                     promptVersion,
-                    primaryModel,
+                    attempt.ModelUsed,
+                    attempt.Provider,
+                    attempt.ReasoningEffort,
+                    attempt.RequestSourcePath,
                     summary,
                     force,
                     attempt.SanitizedResponse!,
@@ -267,7 +279,10 @@ public class LlmCoachingOrchestrator : ILlmCoachingOrchestrator
                 if (attempt.Success)
                 {
                     metadata.SourcePath = "fallback_model";
-                    metadata.ModelUsed = modelName;
+                    metadata.ProviderUsed = attempt.Provider;
+                    metadata.ModelUsed = attempt.ModelUsed;
+                    metadata.ReasoningEffort = attempt.ReasoningEffort;
+                    metadata.RequestSourcePath = attempt.RequestSourcePath;
                     metadata.Attempts = attemptNo;
                     metadata.FallbackUsed = true;
                     metadata.ErrorSummary = null;
@@ -276,7 +291,10 @@ public class LlmCoachingOrchestrator : ILlmCoachingOrchestrator
                         sessionId,
                         inputHash,
                         promptVersion,
-                        modelName,
+                        attempt.ModelUsed,
+                        attempt.Provider,
+                        attempt.ReasoningEffort,
+                        attempt.RequestSourcePath,
                         summary,
                         force,
                         attempt.SanitizedResponse!,
@@ -325,7 +343,10 @@ public class LlmCoachingOrchestrator : ILlmCoachingOrchestrator
             if (sameInputCached != null)
             {
                 metadata.SourcePath = "cache_same_input";
+                metadata.ProviderUsed = _llmOptions.Provider;
                 metadata.ModelUsed = sameInputCached.Model;
+                metadata.ReasoningEffort = sameInputCached.ReasoningEffort;
+                metadata.RequestSourcePath = sameInputCached.RequestSourcePath;
                 metadata.FallbackUsed = true;
                 metadata.Attempts = attemptNo;
                 metadata.ErrorSummary = BuildErrorSummary(allAttemptErrors);
@@ -348,7 +369,10 @@ public class LlmCoachingOrchestrator : ILlmCoachingOrchestrator
             if (anySessionCached != null)
             {
                 metadata.SourcePath = "cache_previous_session";
+                metadata.ProviderUsed = _llmOptions.Provider;
                 metadata.ModelUsed = anySessionCached.Model;
+                metadata.ReasoningEffort = anySessionCached.ReasoningEffort;
+                metadata.RequestSourcePath = anySessionCached.RequestSourcePath;
                 metadata.FallbackUsed = true;
                 metadata.Attempts = attemptNo;
                 metadata.ErrorSummary = BuildErrorSummary(allAttemptErrors);
@@ -427,7 +451,13 @@ public class LlmCoachingOrchestrator : ILlmCoachingOrchestrator
                     $"model={model},attempt={attemptNo},failure=guardrail_rejected:{string.Join("|", guardrails.Metadata.Violations)}");
             }
 
-            return LlmAttemptOutcome.CreateSucceeded(guardrails.Response, guardrails.Metadata);
+            return LlmAttemptOutcome.CreateSucceeded(
+                guardrails.Response,
+                guardrails.Metadata,
+                string.IsNullOrWhiteSpace(result.Provider) ? _llmOptions.Provider : result.Provider,
+                string.IsNullOrWhiteSpace(result.Model) ? model : result.Model,
+                result.ReasoningEffort ?? _llmOptions.ReasoningEffort,
+                result.RequestSourcePath ?? "/responses");
         }
         catch (OperationCanceledException ex) when (!cancellationToken.IsCancellationRequested)
         {
@@ -494,6 +524,9 @@ public class LlmCoachingOrchestrator : ILlmCoachingOrchestrator
         string inputHash,
         string promptVersion,
         string model,
+        string provider,
+        string? reasoningEffort,
+        string? requestSourcePath,
         EvidenceSummaryDto summary,
         bool force,
         LlmCoachingResponse response,
@@ -541,7 +574,10 @@ public class LlmCoachingOrchestrator : ILlmCoachingOrchestrator
         var payloadWithMeta = MergeOutputWithMeta(
             normalizedOutput,
             promptVersion,
+            provider,
             model,
+            reasoningEffort,
+            requestSourcePath,
             inputHash,
             llmRunId,
             createdAt,
@@ -579,6 +615,10 @@ public class LlmCoachingOrchestrator : ILlmCoachingOrchestrator
             if (racedParsed != null)
             {
                 orchestration.SourcePath = "cache_same_input";
+                orchestration.ProviderUsed = racedParsed.Provider;
+                orchestration.ModelUsed = racedParsed.Model;
+                orchestration.ReasoningEffort = racedParsed.ReasoningEffort;
+                orchestration.RequestSourcePath = racedParsed.RequestSourcePath;
                 return LlmCoachingOrchestrationResult.CreateSuccess(racedParsed.Response, orchestration);
             }
 
@@ -672,7 +712,13 @@ public class LlmCoachingOrchestrator : ILlmCoachingOrchestrator
             return null;
         }
 
-        return new CachedRunParseResult(guardrails.Response, run.Model, run.CreatedAt);
+        return new CachedRunParseResult(
+            guardrails.Response,
+            run.Model,
+            run.CreatedAt,
+            ReadMetaString(run.OutputJson, "provider") ?? _llmOptions.Provider,
+            ReadMetaString(run.OutputJson, "reasoningEffort") ?? _llmOptions.ReasoningEffort,
+            ReadMetaString(run.OutputJson, "requestSourcePath") ?? "/responses");
     }
 
     private bool ShouldRetryPrimary(LlmAttemptFailureType failureType)
@@ -821,7 +867,10 @@ public class LlmCoachingOrchestrator : ILlmCoachingOrchestrator
     private static string MergeOutputWithMeta(
         string outputJson,
         string promptVersion,
+        string provider,
         string model,
+        string? reasoningEffort,
+        string? requestSourcePath,
         string inputHash,
         Guid llmRunId,
         DateTime createdAtUtc,
@@ -857,7 +906,10 @@ public class LlmCoachingOrchestrator : ILlmCoachingOrchestrator
                     prop.Key.Equals("optimization", StringComparison.OrdinalIgnoreCase) ||
                     prop.Key.Equals("orchestration", StringComparison.OrdinalIgnoreCase) ||
                     prop.Key.Equals("promptVersion", StringComparison.OrdinalIgnoreCase) ||
+                    prop.Key.Equals("provider", StringComparison.OrdinalIgnoreCase) ||
                     prop.Key.Equals("model", StringComparison.OrdinalIgnoreCase) ||
+                    prop.Key.Equals("reasoningEffort", StringComparison.OrdinalIgnoreCase) ||
+                    prop.Key.Equals("requestSourcePath", StringComparison.OrdinalIgnoreCase) ||
                     prop.Key.Equals("inputHash", StringComparison.OrdinalIgnoreCase) ||
                     prop.Key.Equals("llmRunId", StringComparison.OrdinalIgnoreCase) ||
                     prop.Key.Equals("createdAtUtc", StringComparison.OrdinalIgnoreCase))
@@ -869,7 +921,10 @@ public class LlmCoachingOrchestrator : ILlmCoachingOrchestrator
                 prop.Value.WriteTo(writer);
             }
             writer.WriteString("promptVersion", promptVersion);
+            writer.WriteString("provider", provider);
             writer.WriteString("model", model);
+            writer.WriteString("reasoningEffort", reasoningEffort);
+            writer.WriteString("requestSourcePath", requestSourcePath);
             writer.WriteString("inputHash", inputHash);
             writer.WriteString("llmRunId", llmRunId);
             writer.WriteString("createdAtUtc", createdAtUtc);
@@ -895,7 +950,10 @@ public class LlmCoachingOrchestrator : ILlmCoachingOrchestrator
             writer.WritePropertyName("orchestration");
             writer.WriteStartObject();
             writer.WriteString("sourcePath", orchestration.SourcePath);
+            writer.WriteString("providerUsed", orchestration.ProviderUsed);
             writer.WriteNumber("attempts", orchestration.Attempts);
+            writer.WriteString("reasoningEffort", orchestration.ReasoningEffort);
+            writer.WriteString("requestSourcePath", orchestration.RequestSourcePath);
             writer.WriteBoolean("fallbackUsed", orchestration.FallbackUsed);
             writer.WriteStartArray("attemptedModels");
             foreach (var attempted in orchestration.AttemptedModels)
@@ -952,6 +1010,27 @@ public class LlmCoachingOrchestrator : ILlmCoachingOrchestrator
         }
 
         return Encoding.UTF8.GetString(stream.ToArray());
+    }
+
+    private static string? ReadMetaString(string json, string key)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            if (doc.RootElement.TryGetProperty("_meta", out var meta) &&
+                meta.ValueKind == JsonValueKind.Object &&
+                meta.TryGetProperty(key, out var value) &&
+                value.ValueKind == JsonValueKind.String)
+            {
+                return value.GetString();
+            }
+        }
+        catch
+        {
+            // Ignore malformed cached metadata and fall back to configured defaults.
+        }
+
+        return null;
     }
 
     private static LlmOptimizationMetadata ToOptimizationMetadata(LlmOptimizationPlan plan)
@@ -1035,7 +1114,10 @@ public sealed class LlmCoachingOrchestrationResult
 public sealed class LlmCoachingOrchestrationMetadata
 {
     public string SourcePath { get; set; } = "failed";
+    public string ProviderUsed { get; set; } = "OpenAI";
     public string ModelUsed { get; set; } = string.Empty;
+    public string? ReasoningEffort { get; set; }
+    public string? RequestSourcePath { get; set; }
     public int Attempts { get; set; }
     public bool FallbackUsed { get; set; }
     public int ValidationFailures { get; set; }
@@ -1062,16 +1144,30 @@ internal sealed class LlmAttemptOutcome
     public bool Success { get; private set; }
     public LlmCoachingResponse? SanitizedResponse { get; private set; }
     public LlmGuardrailsMetadata? GuardrailsMetadata { get; private set; }
+    public string Provider { get; private set; } = "OpenAI";
+    public string ModelUsed { get; private set; } = string.Empty;
+    public string? ReasoningEffort { get; private set; }
+    public string? RequestSourcePath { get; private set; }
     public LlmAttemptFailureType FailureType { get; private set; }
     public string? ErrorMessage { get; private set; }
 
-    public static LlmAttemptOutcome CreateSucceeded(LlmCoachingResponse response, LlmGuardrailsMetadata guardrails)
+    public static LlmAttemptOutcome CreateSucceeded(
+        LlmCoachingResponse response,
+        LlmGuardrailsMetadata guardrails,
+        string provider,
+        string modelUsed,
+        string? reasoningEffort,
+        string? requestSourcePath)
     {
         return new LlmAttemptOutcome
         {
             Success = true,
             SanitizedResponse = response,
             GuardrailsMetadata = guardrails,
+            Provider = provider,
+            ModelUsed = modelUsed,
+            ReasoningEffort = reasoningEffort,
+            RequestSourcePath = requestSourcePath,
             FailureType = LlmAttemptFailureType.None
         };
     }
@@ -1087,4 +1183,10 @@ internal sealed class LlmAttemptOutcome
     }
 }
 
-internal sealed record CachedRunParseResult(LlmCoachingResponse Response, string Model, DateTime CreatedAtUtc);
+internal sealed record CachedRunParseResult(
+    LlmCoachingResponse Response,
+    string Model,
+    DateTime CreatedAtUtc,
+    string Provider,
+    string? ReasoningEffort,
+    string? RequestSourcePath);

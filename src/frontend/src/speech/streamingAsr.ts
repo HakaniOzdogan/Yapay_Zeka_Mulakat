@@ -5,6 +5,13 @@ export type StreamingAsrStatus =
   | 'error'
   | 'stopped'
 
+export type SpeechReadinessReason =
+  | 'ready'
+  | 'model_loading'
+  | 'at_capacity'
+  | 'unreachable'
+  | 'startup_failed'
+
 export interface AsrFinalSegment {
   start_ms: number
   end_ms: number
@@ -30,14 +37,77 @@ export interface ConnectStreamingAsrOptions {
   useVad?: boolean
   onPartial: (text: string, tMs?: number) => void
   onFinal: (payload: AsrFinalPayload) => void
-  onError: (message: string) => void
+  onError: (error: StreamingAsrError) => void
   onNotice?: (message: string | null) => void
   onStatus?: (status: StreamingAsrStatus) => void
+  onAudioChunk?: () => void
+  onDiagnostics?: (diag: SpeechDiagnostics) => void
   mediaStream?: MediaStream
 }
 
 export interface StreamingAsrConnection {
   stop(): Promise<void>
+}
+
+export interface StreamingAsrError {
+  message: string
+  code?: string
+  retryable?: boolean
+}
+
+export interface StreamingAsrReadiness {
+  ready: boolean
+  reachable: boolean
+  reason: SpeechReadinessReason
+  message: string | null
+  details?: {
+    status?: string
+    modelLoaded?: boolean
+    failureReason?: string
+    failureDetail?: string
+    startupState?: string
+    activeSessions?: number
+    maxConcurrentSessions?: number
+    uptimeSec?: number
+  }
+}
+
+export interface SpeechDiagnostics {
+  model: string
+  model_ready: boolean
+  compute_type: string
+  device: string
+  audio_input_contract: string
+  live_input_sample_rate: number
+  live_input_channels: number
+  live_input_chunk_ms: number
+  vad_backend: string
+  silero_available: boolean
+  strict_quality_mode: boolean
+  active_sessions: number
+  max_sessions: number
+  avg_transcribe_latency_ms: number
+  p95_transcribe_latency_ms: number
+  total_final_segments: number
+  total_partial_segments: number
+  total_connections: number
+  total_errors: number
+  vad_voiced_chunks: number
+  vad_rejected_chunks: number
+  filtered_decode_results_total: number
+  empty_decode_results_total: number
+  duplicate_finals_suppressed_total: number
+  last_upload_container?: string | null
+  last_upload_codec?: string | null
+  last_upload_sample_rate?: number | null
+  last_upload_channels?: number | null
+  last_upload_content_type?: string | null
+  upload_normalization_applied?: boolean
+  uptime_sec: number
+  // client-side counters
+  client_partials_received: number
+  client_finals_received: number
+  client_audio_chunks_sent: number
 }
 
 const TARGET_SAMPLE_RATE = 16000
@@ -46,6 +116,7 @@ const CHUNK_SAMPLES = (TARGET_SAMPLE_RATE * CHUNK_MS) / 1000
 const WS_MAX_BUFFERED_AMOUNT = 1_000_000
 const WS_MAX_QUEUE = 24
 const RECONNECT_DELAYS_MS = [1000, 2000, 4000]
+const DIAGNOSTICS_POLL_MS = 5000
 
 type AudioFrameHandler = (samples: Float32Array) => void
 
@@ -59,6 +130,185 @@ function toWsUrl(baseUrl: string, sessionId: string): string {
     : baseUrl.replace(/^http:\/\//i, 'ws://').replace(/^https:\/\//i, 'wss://')
   const root = withProto.replace(/\/$/, '')
   return `${root}/ws/transcribe?session_id=${encodeURIComponent(sessionId)}`
+}
+
+function toHttpUrl(baseUrl: string): string {
+  const withProto = baseUrl.startsWith('http://') || baseUrl.startsWith('https://')
+    ? baseUrl
+    : baseUrl.replace(/^ws:\/\//i, 'http://').replace(/^wss:\/\//i, 'https://')
+  return withProto.replace(/\/$/, '')
+}
+
+export async function getStreamingAsrReadiness(baseUrl: string): Promise<StreamingAsrReadiness> {
+  const root = toHttpUrl(baseUrl)
+  const healthUrl = `${root}/health`
+  const readyUrl = `${root}/health/ready`
+
+  try {
+    const healthResponse = await fetch(healthUrl, {
+      method: 'GET',
+      cache: 'no-store',
+      headers: {
+        Accept: 'application/json'
+      }
+    })
+
+    if (!healthResponse.ok) {
+      return {
+        ready: false,
+        reachable: false,
+        reason: 'unreachable',
+        message: 'Live transcript servisine ulasilamiyor. Speech service ayakta olmayabilir.'
+      }
+    }
+  } catch {
+    return {
+      ready: false,
+      reachable: false,
+      reason: 'unreachable',
+      message: 'Live transcript servisine ulasilamiyor. Speech service ayakta olmayabilir.'
+    }
+  }
+
+  try {
+    const response = await fetch(readyUrl, {
+      method: 'GET',
+      cache: 'no-store',
+      headers: {
+        Accept: 'application/json'
+      }
+    })
+
+    let payload: any = null
+    try {
+      payload = await response.json()
+    } catch {
+      payload = null
+    }
+
+    const details = {
+      status: typeof payload?.status === 'string' ? payload.status : undefined,
+      modelLoaded: typeof payload?.modelLoaded === 'boolean' ? payload.modelLoaded : undefined,
+      failureReason: typeof payload?.failureReason === 'string' ? payload.failureReason : undefined,
+      failureDetail: typeof payload?.failureDetail === 'string' ? payload.failureDetail : undefined,
+      startupState: typeof payload?.startupState === 'string' ? payload.startupState : undefined,
+      activeSessions: typeof payload?.activeSessions === 'number' ? payload.activeSessions : undefined,
+      maxConcurrentSessions: typeof payload?.maxConcurrentSessions === 'number' ? payload.maxConcurrentSessions : undefined,
+      uptimeSec: typeof payload?.uptimeSec === 'number' ? payload.uptimeSec : undefined
+    }
+
+    if (response.ok) {
+      return {
+        ready: true,
+        reachable: true,
+        reason: 'ready',
+        message: null,
+        details
+      }
+    }
+
+    if (response.status === 503) {
+      const reason: SpeechReadinessReason = details.failureReason === 'startup_failed'
+        ? 'startup_failed'
+        : details.status === 'at_capacity'
+          ? 'at_capacity'
+          : 'model_loading'
+
+      const message = reason === 'startup_failed'
+        ? details.failureDetail || 'Speech modeli baslatilamadi. Sunucu ayarlarini kontrol edin.'
+        : reason === 'at_capacity'
+          ? 'Live transcript servisi su anda dolu. Lutfen kisa bir sure sonra tekrar deneyin.'
+          : details.modelLoaded === false
+            ? 'Live transcript modeli yukleniyor. Hazir oldugunda otomatik baglanacak.'
+            : 'Live transcript servisi henuz hazir degil.'
+
+      return {
+        ready: false,
+        reachable: true,
+        reason,
+        message,
+        details
+      }
+    }
+
+    return {
+      ready: false,
+      reachable: true,
+      reason: 'startup_failed',
+      message: `Live transcript readiness check failed (${response.status}).`,
+      details
+    }
+  } catch {
+    return {
+      ready: false,
+      reachable: true,
+      reason: 'model_loading',
+      message: 'Speech modeli yukleniyor, canli transcript birazdan baglanacak.',
+      details: {
+        status: 'not_ready',
+        failureReason: 'model_loading',
+        startupState: 'model_loading'
+      }
+    }
+  }
+}
+
+export function getSpeechReadinessMessage(reason: SpeechReadinessReason, detail?: string | null): string | null {
+  switch (reason) {
+    case 'ready':
+      return null
+    case 'model_loading':
+      return 'Speech modeli yukleniyor, canli transcript birazdan baglanacak.'
+    case 'at_capacity':
+      return 'Speech servisi dolu. Kisa sure sonra tekrar denenecek.'
+    case 'unreachable':
+      return 'Speech servisine ulasilamiyor. Otomatik tekrar deneniyor.'
+    case 'startup_failed':
+      return detail || 'Speech modeli baslatilamadi. Sunucu ayarlarini kontrol edin.'
+    default:
+      return 'Live transcript servisi henuz hazir degil.'
+  }
+}
+
+export function getSpeechRetryNotice(reason: SpeechReadinessReason): string | null {
+  switch (reason) {
+    case 'ready':
+      return null
+    case 'model_loading':
+      return 'Speech modeli yukleniyor, canli transcript birazdan baglanacak.'
+    case 'at_capacity':
+      return 'Speech servisi dolu. Kisa sure sonra tekrar denenecek.'
+    case 'unreachable':
+      return 'Speech servisine ulasilamiyor. Otomatik tekrar deneniyor.'
+    case 'startup_failed':
+      return 'Speech modeli baslatilamadi. Ayarlar kontrol edildikten sonra otomatik tekrar denenecek.'
+    default:
+      return null
+  }
+}
+
+export function getSpeechModelLabel(ready: boolean | null, reason: SpeechReadinessReason | null): string {
+  if (ready === true || reason === 'ready') return 'Hazir'
+  if (reason === 'startup_failed') return 'Baslatma hatasi'
+  if (reason === 'at_capacity') return 'Dolu'
+  if (reason === 'unreachable') return 'Ulasilamiyor'
+  if (reason === 'model_loading' || ready === false) return 'Yukleniyor'
+  return 'Kontrol ediliyor...'
+}
+
+export async function fetchSpeechDiagnostics(baseUrl: string): Promise<SpeechDiagnostics | null> {
+  const root = toHttpUrl(baseUrl)
+  try {
+    const response = await fetch(`${root}/health/diagnostics`, {
+      method: 'GET',
+      cache: 'no-store',
+      headers: { Accept: 'application/json' }
+    })
+    if (!response.ok) return null
+    return await response.json()
+  } catch {
+    return null
+  }
 }
 
 function floatToInt16Pcm(input: Float32Array): Int16Array {
@@ -231,6 +481,8 @@ export async function connectStreamingAsr(options: ConnectStreamingAsrOptions): 
     onError,
     onNotice,
     onStatus,
+    onAudioChunk,
+    onDiagnostics,
     mediaStream
   } = options
 
@@ -247,6 +499,10 @@ export async function connectStreamingAsr(options: ConnectStreamingAsrOptions): 
   const sendQueue: string[] = []
   let lastQueueWarningAt = 0
   let lastPendingConnectionNoticeAt = 0
+  let diagnosticsInterval: ReturnType<typeof setInterval> | null = null
+  let clientPartialsReceived = 0
+  let clientFinalsReceived = 0
+  let clientAudioChunksSent = 0
 
   const flushSendQueue = () => {
     if (!ws || ws.readyState !== WebSocket.OPEN) return
@@ -307,6 +563,8 @@ export async function connectStreamingAsr(options: ConnectStreamingAsrOptions): 
       })
       seq += 1
       enqueueWsMessage(payload, false)
+      clientAudioChunksSent += 1
+      onAudioChunk?.()
     }
   }
 
@@ -328,6 +586,21 @@ export async function connectStreamingAsr(options: ConnectStreamingAsrOptions): 
         use_vad: useVad ?? true
       }))
       flushSendQueue()
+
+      // Start diagnostics polling
+      if (onDiagnostics && !diagnosticsInterval) {
+        const pollDiag = async () => {
+          const diag = await fetchSpeechDiagnostics(url)
+          if (diag) {
+            diag.client_partials_received = clientPartialsReceived
+            diag.client_finals_received = clientFinalsReceived
+            diag.client_audio_chunks_sent = clientAudioChunksSent
+            onDiagnostics(diag)
+          }
+        }
+        void pollDiag()
+        diagnosticsInterval = setInterval(() => void pollDiag(), DIAGNOSTICS_POLL_MS)
+      }
     }
 
     ws.onmessage = (event: MessageEvent<string>) => {
@@ -340,10 +613,12 @@ export async function connectStreamingAsr(options: ConnectStreamingAsrOptions): 
 
       if (data?.type === 'partial') {
         onNotice?.(null)
+        clientPartialsReceived += 1
         onPartial(String(data.text || ''), typeof data.t_ms === 'number' ? data.t_ms : undefined)
       } else if (data?.type === 'partial_status') {
         onNotice?.(String(data.text || 'Processing audio...'))
       } else if (data?.type === 'final') {
+        clientFinalsReceived += 1
         const segments = Array.isArray(data.segments) ? data.segments : []
         onFinal({
           segments: segments.map((segment: any) => ({
@@ -358,7 +633,11 @@ export async function connectStreamingAsr(options: ConnectStreamingAsrOptions): 
         if (data?.retryable) {
           onNotice?.(detail)
         } else {
-          onError(detail)
+          onError({
+            message: detail,
+            code: typeof data?.error === 'string' ? data.error : undefined,
+            retryable: typeof data?.retryable === 'boolean' ? data.retryable : undefined
+          })
         }
       }
     }
@@ -375,7 +654,11 @@ export async function connectStreamingAsr(options: ConnectStreamingAsrOptions): 
 
       if (reconnectAttempt >= RECONNECT_DELAYS_MS.length) {
         onStatus?.('error')
-        onError('Streaming ASR disconnected after retries.')
+        onError({
+          message: 'Streaming ASR disconnected after retries.',
+          code: 'ws_retry_exhausted',
+          retryable: false
+        })
         return
       }
 
@@ -393,7 +676,11 @@ export async function connectStreamingAsr(options: ConnectStreamingAsrOptions): 
     ownsStream = !mediaStream
   } catch (error) {
     onStatus?.('error')
-    onError('Microphone permission denied for live transcript.')
+    onError({
+      message: 'Microphone permission denied for live transcript.',
+      code: 'microphone_permission_denied',
+      retryable: false
+    })
     throw error instanceof Error ? error : new Error('Microphone permission denied')
   }
 
@@ -408,6 +695,11 @@ export async function connectStreamingAsr(options: ConnectStreamingAsrOptions): 
       sampleQueue = []
       sendQueue.length = 0
       onNotice?.(null)
+
+      if (diagnosticsInterval) {
+        clearInterval(diagnosticsInterval)
+        diagnosticsInterval = null
+      }
 
       if (ws && ws.readyState === WebSocket.OPEN) {
         try {

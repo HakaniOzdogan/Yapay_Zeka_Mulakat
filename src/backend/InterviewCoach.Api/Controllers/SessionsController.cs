@@ -186,12 +186,12 @@ public class SessionsController : ControllerBase
     }
 
     /// <summary>
-    /// Exports transcript as redacted plain text.
+    /// Transcript export is intentionally disabled in this build.
     /// </summary>
     [HttpGet("{sessionId:guid}/transcript/export")]
     [SessionOwnership]
     [Produces("text/plain")]
-    [ProducesResponseType(typeof(FileContentResult), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status410Gone)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> ExportTranscript(Guid sessionId)
@@ -200,16 +200,15 @@ public class SessionsController : ControllerBase
         if (!sessionExists)
             return this.NotFoundProblem($"Session '{sessionId}' was not found.");
 
-        var lines = await _db.TranscriptSegments
-            .AsNoTracking()
-            .Where(s => s.SessionId == sessionId)
-            .OrderBy(s => s.StartMs)
-            .Select(s => s.Text)
-            .ToListAsync();
-
-        var redacted = lines.Select(_redactionService.Redact);
-        var content = string.Join(Environment.NewLine, redacted);
-        return File(Encoding.UTF8.GetBytes(content), "text/plain; charset=utf-8");
+        var problem = new ProblemDetails
+        {
+            Title = "Transcript disabled",
+            Status = StatusCodes.Status410Gone,
+            Detail = "Transcript export is disabled in this build.",
+            Type = "https://datatracker.ietf.org/doc/html/rfc7807"
+        };
+        problem.Extensions["traceId"] = HttpContext.TraceIdentifier;
+        return StatusCode(StatusCodes.Status410Gone, problem);
     }
 
     /// <summary>

@@ -1,0 +1,3 @@
+services:
+  speech-service:
+    gpus: all

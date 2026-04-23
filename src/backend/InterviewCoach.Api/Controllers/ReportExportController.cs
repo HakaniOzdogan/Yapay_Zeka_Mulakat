@@ -147,18 +147,6 @@ public class ReportExportController : ControllerBase
             })
             .ToListAsync(cancellationToken);
 
-        var transcript = await _db.TranscriptSegments
-            .AsNoTracking()
-            .Where(t => t.SessionId == sessionId)
-            .OrderBy(t => t.StartMs)
-            .Select(t => new TranscriptLineDto
-            {
-                StartMs = t.StartMs,
-                EndMs = t.EndMs,
-                Text = t.Text
-            })
-            .ToListAsync(cancellationToken);
-
         var derivedSeries = DerivedKeys.ToDictionary(
             key => key,
             _ => new List<DerivedPointDto>());
@@ -169,7 +157,8 @@ public class ReportExportController : ControllerBase
             ScoreCard = scoreCard,
             Patterns = patterns,
             DerivedSeries = derivedSeries,
-            Transcript = transcript
+            Transcript = [],
+            TranscriptNotice = "Transcript is disabled in this build."
         };
     }
 
@@ -453,6 +442,12 @@ public class ReportExportController : ControllerBase
 
     private static void AppendTranscriptExcerpt(StringBuilder sb, ReportDto report, EvidenceSummaryDto? evidenceSummary)
     {
+        if (!string.IsNullOrWhiteSpace(report.TranscriptNotice))
+        {
+            sb.AppendLine($"- {report.TranscriptNotice}");
+            return;
+        }
+
         if (evidenceSummary?.TranscriptSlices.Count > 0)
         {
             foreach (var slice in evidenceSummary.TranscriptSlices.Take(3))

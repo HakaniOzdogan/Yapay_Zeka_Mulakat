@@ -88,18 +88,6 @@ public class ReportsController : ControllerBase
             })
             .ToListAsync();
 
-        var transcript = await _db.TranscriptSegments
-            .AsNoTracking()
-            .Where(t => t.SessionId == sessionId)
-            .OrderBy(t => t.StartMs)
-            .Select(t => new TranscriptLineDto
-            {
-                StartMs = t.StartMs,
-                EndMs = t.EndMs,
-                Text = t.Text
-            })
-            .ToListAsync();
-
         var derivedSeries = DerivedKeys.ToDictionary(
             key => key,
             _ => new List<DerivedPointDto>());
@@ -110,7 +98,8 @@ public class ReportsController : ControllerBase
             ScoreCard = scoreCard,
             Patterns = patterns,
             DerivedSeries = derivedSeries,
-            Transcript = transcript
+            Transcript = [],
+            TranscriptNotice = "Transcript is disabled in this build."
         };
 
         return Ok(report);
@@ -133,6 +122,9 @@ public class ReportDto
 
     /// <summary>Ordered transcript lines.</summary>
     public List<TranscriptLineDto> Transcript { get; set; } = [];
+
+    /// <summary>Explains why transcript data may be unavailable.</summary>
+    public string? TranscriptNotice { get; set; }
 }
 
 public class SessionInfoDto

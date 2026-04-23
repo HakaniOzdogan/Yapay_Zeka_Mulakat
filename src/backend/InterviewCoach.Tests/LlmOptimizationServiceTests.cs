@@ -70,9 +70,9 @@ public class LlmOptimizationServiceTests
         var medium = service.BuildPlan(BuildSummary(durationMs: 120_000, patterns: 4, windows: 4, transcriptChars: 1000));
         var high = service.BuildPlan(BuildSummary(durationMs: 600_000, patterns: 10, windows: 10, transcriptChars: 9000));
 
-        low.ModelChosen.Should().Be("qwen2.5:3b-instruct");
-        medium.ModelChosen.Should().Be("qwen2.5:7b-instruct");
-        high.ModelChosen.Should().Be("qwen2.5:7b-instruct");
+        low.ModelChosen.Should().Be("gpt-5.4-mini");
+        medium.ModelChosen.Should().Be("gpt-5.4");
+        high.ModelChosen.Should().Be("gpt-5.4");
     }
 
     private static LlmOptimizationService CreateService()

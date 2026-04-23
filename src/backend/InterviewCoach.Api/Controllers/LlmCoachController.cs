@@ -73,8 +73,11 @@ public class LlmCoachController : ControllerBase
             };
             problem.Extensions["traceId"] = HttpContext.TraceIdentifier;
             problem.Extensions["sourcePath"] = result.Metadata.SourcePath;
+            problem.Extensions["providerUsed"] = result.Metadata.ProviderUsed;
             problem.Extensions["attempts"] = result.Metadata.Attempts;
             problem.Extensions["modelUsed"] = result.Metadata.ModelUsed;
+            problem.Extensions["reasoningEffort"] = result.Metadata.ReasoningEffort;
+            problem.Extensions["requestSourcePath"] = result.Metadata.RequestSourcePath;
             problem.Extensions["validationFailures"] = result.Metadata.ValidationFailures;
             problem.Extensions["guardrailFailures"] = result.Metadata.GuardrailFailures;
             problem.Extensions["attemptedModels"] = result.Metadata.AttemptedModels;

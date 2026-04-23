@@ -1,0 +1,51 @@
+{
+  "totalClients": 1,
+  "successfulConnections": 1,
+  "failedConnections": 0,
+  "connectSuccessRate": 1.0,
+  "totalChunksSent": 2,
+  "chunksPerSecond": 3.77,
+  "partialMessagesReceived": 0,
+  "finalMessagesReceived": 0,
+  "disconnectedOrErrorCount": 1,
+  "disconnectErrorRate": 1.0,
+  "p50TimeToFirstPartialMs": null,
+  "p95TimeToFirstPartialMs": null,
+  "p50TimeToFirstFinalMs": null,
+  "p95TimeToFirstFinalMs": null,
+  "p50PartialLocalLatencyMs": null,
+  "p95PartialLocalLatencyMs": null,
+  "runDurationSec": 0.53,
+  "errorsByType": {
+    "ConnectionClosed:1000": 1
+  },
+  "meta": {
+    "startedAtUtc": "2026-04-18T13:05:49.117429+00:00",
+    "scenario": "smoke",
+    "baseUrl": "http://host.docker.internal:8000",
+    "wsUrl": "ws://host.docker.internal:8000/ws/transcribe?session_id=3338e3fa-2975-4bad-9403-ce8e7054d1dd&lang=en",
+    "lang": "en",
+    "durationSec": 8,
+    "chunkMs": 250,
+    "connectTimeoutSec": 10.0,
+    "responseTimeoutSec": 30.0,
+    "noEnd": false,
+    "wavPath": "/tmp-host/codex-stt-smoke.wav"
+  },
+  "clients": [
+    {
+      "clientId": 1,
+      "connected": true,
+      "connectionError": null,
+      "disconnectedCleanly": false,
+      "chunksSent": 2,
+      "partialMessages": 0,
+      "finalMessages": 0,
+      "firstPartialMs": null,
+      "firstFinalMs": null,
+      "meanPartialLocalLatencyMs": null,
+      "error": "ConnectionClosed:1000",
+      "closeCode": 1000
+    }
+  ]
+}

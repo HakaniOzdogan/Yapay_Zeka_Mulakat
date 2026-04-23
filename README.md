@@ -129,6 +129,7 @@ flowchart LR
   - Check health/logs:
     - `docker compose -f docker/docker-compose.yml ps`
     - `docker compose -f docker/docker-compose.yml logs speech-service`
+  - GPU olmayan makinelerde `SPEECH_COMPUTE_TYPE=int8` ve `SPEECH_DEVICE=cpu` kullanin. `float16` speech modelinin hazir olmasini engelleyebilir.
 
 ## More Details
 - Architecture and payload examples: `docs/ARCHITECTURE.md`

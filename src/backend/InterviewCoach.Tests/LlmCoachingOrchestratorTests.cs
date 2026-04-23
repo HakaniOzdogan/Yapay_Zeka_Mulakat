@@ -494,7 +494,7 @@ public class LlmCoachingOrchestratorTests
     private sealed class FakeLlmCoachingService : ILlmCoachingService
     {
         private readonly Dictionary<string, Queue<Func<LlmCoachingResult>>> _plans = new(StringComparer.OrdinalIgnoreCase);
-        private readonly LlmCoachingService _parser = new(new DummyOllamaClient());
+        private readonly LlmCoachingService _parser = new(new DummyLlmClient());
 
         public int Calls { get; private set; }
 
@@ -533,9 +533,9 @@ public class LlmCoachingOrchestratorTests
         }
     }
 
-    private sealed class DummyOllamaClient : IOllamaClient
+    private sealed class DummyLlmClient : ILlmClient
     {
-        public Task<string> ChatJsonAsync(string systemPrompt, string userPrompt, CancellationToken cancellationToken = default)
+        public Task<LlmJsonResponse> GenerateJsonAsync(LlmJsonRequest request, CancellationToken cancellationToken = default)
         {
             throw new InvalidOperationException("Not used in this test.");
         }

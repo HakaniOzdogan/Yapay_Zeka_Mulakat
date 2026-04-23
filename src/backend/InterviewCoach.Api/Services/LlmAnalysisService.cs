@@ -1,4 +1,3 @@
-using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Options;
 
@@ -9,81 +8,97 @@ public interface ILlmAnalysisService
     Task<LiveAnalysisResult> AnalyzeLiveWindowAsync(LiveAnalysisInput input, CancellationToken cancellationToken = default);
 }
 
-public class OllamaLlmAnalysisService : ILlmAnalysisService
+public class OpenAiLlmAnalysisService : ILlmAnalysisService
 {
-    private readonly HttpClient _httpClient;
-    private readonly ILogger<OllamaLlmAnalysisService> _logger;
+    private static readonly JsonElement LiveAnalysisSchema = JsonSerializer.SerializeToElement(new
+    {
+        type = "object",
+        additionalProperties = false,
+        properties = new
+        {
+            summary = new { type = "string" },
+            risks = new
+            {
+                type = "array",
+                items = new { type = "string" }
+            },
+            suggestions = new
+            {
+                type = "array",
+                items = new { type = "string" }
+            },
+            confidence = new
+            {
+                type = "number",
+                minimum = 0,
+                maximum = 1
+            }
+        },
+        required = new[] { "summary", "risks", "suggestions", "confidence" }
+    });
+
+    private readonly ILlmClient _llmClient;
+    private readonly ILogger<OpenAiLlmAnalysisService> _logger;
     private readonly LlmOptions _options;
 
-    public OllamaLlmAnalysisService(
-        HttpClient httpClient,
-        ILogger<OllamaLlmAnalysisService> logger,
+    public OpenAiLlmAnalysisService(
+        ILlmClient llmClient,
+        ILogger<OpenAiLlmAnalysisService> logger,
         IOptions<LlmOptions> llmOptions)
     {
-        _httpClient = httpClient;
+        _llmClient = llmClient;
         _logger = logger;
         _options = llmOptions.Value;
     }
 
     public async Task<LiveAnalysisResult> AnalyzeLiveWindowAsync(LiveAnalysisInput input, CancellationToken cancellationToken = default)
     {
-        var payload = BuildOllamaPayload(input);
-        var requestBody = JsonSerializer.Serialize(payload);
-        using var content = new StringContent(requestBody, Encoding.UTF8, "application/json");
-
-        using var response = await _httpClient.PostAsync("/api/chat", content, cancellationToken);
-        var body = await response.Content.ReadAsStringAsync(cancellationToken);
-        if (!response.IsSuccessStatusCode)
-        {
-            _logger.LogWarning("Ollama call failed: {StatusCode} {Body}", (int)response.StatusCode, body);
-            return LiveAnalysisResult.Fallback("LLM servisinden yanit alinamadi.");
-        }
-
         try
         {
-            var raw = JsonSerializer.Deserialize<OllamaChatResponse>(body, new JsonSerializerOptions
+            var raw = await _llmClient.GenerateJsonAsync(new LlmJsonRequest
             {
-                PropertyNameCaseInsensitive = true
-            });
-            var jsonText = raw?.Message?.Content;
-            if (string.IsNullOrWhiteSpace(jsonText))
-            {
-                return LiveAnalysisResult.Fallback("LLM yaniti bos geldi.");
-            }
+                Model = string.IsNullOrWhiteSpace(_options.LiveAnalysisModel) ? _options.PrimaryModel : _options.LiveAnalysisModel,
+                SystemPrompt = BuildSystemPrompt(),
+                UserPrompt = BuildUserPrompt(input),
+                SchemaName = "live_analysis",
+                Schema = LiveAnalysisSchema,
+                ReasoningEffort = "medium",
+                SourcePath = "/responses"
+            }, cancellationToken);
 
-            var parsed = ParseModelResult(jsonText);
+            var parsed = ParseModelResult(raw.Content);
 
             if (parsed == null)
             {
                 return LiveAnalysisResult.Fallback("LLM yaniti islenemedi.");
             }
 
-            parsed.Model ??= _options.Model;
+            parsed.Model ??= raw.Model;
             parsed.Timestamp = DateTime.UtcNow;
             parsed.Normalize();
             return parsed;
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to parse Ollama response.");
+            _logger.LogWarning(ex, "Failed to generate live OpenAI analysis.");
             return LiveAnalysisResult.Fallback("LLM yaniti parse edilemedi.");
         }
     }
 
-    private object BuildOllamaPayload(LiveAnalysisInput input)
+    private static string BuildSystemPrompt()
     {
-        var systemPrompt = """
+        return """
 You are an interview coach assistant.
 Always respond in Turkish.
-Return strict JSON object with keys:
-summary (string),
-risks (array of short strings, max 3),
-suggestions (array of short actionable strings, max 3),
-confidence (number between 0 and 1).
-Do not include markdown.
+Focus only on the provided visual and event-based evidence.
+Transcript is disabled in this build, so do not mention missing transcript as a problem.
+Keep risks and suggestions concise.
 """;
+    }
 
-        var userPrompt = JsonSerializer.Serialize(new
+    private static string BuildUserPrompt(LiveAnalysisInput input)
+    {
+        return JsonSerializer.Serialize(new
         {
             task = "Canli mulakat penceresi icin kisa davranis analizi yap.",
             windowSec = input.WindowSec,
@@ -91,30 +106,6 @@ Do not include markdown.
             questionPrompt = input.QuestionPrompt,
             metrics = input
         });
-
-        return new
-        {
-            model = _options.Model,
-            stream = false,
-            format = new
-            {
-                type = "object",
-                properties = new
-                {
-                    summary = new { type = "string" },
-                    risks = new { type = "array", items = new { type = "string" } },
-                    suggestions = new { type = "array", items = new { type = "string" } },
-                    confidence = new { type = "number" }
-                },
-                required = new[] { "summary", "risks", "suggestions", "confidence" }
-            },
-            options = new { temperature = _options.Temperature },
-            messages = new object[]
-            {
-                new { role = "system", content = systemPrompt },
-                new { role = "user", content = userPrompt }
-            }
-        };
     }
 
     private LiveAnalysisResult? ParseModelResult(string jsonText)
@@ -201,36 +192,6 @@ Do not include markdown.
     }
 }
 
-public class LlmOptions
-{
-    public string BaseUrl { get; set; } = "http://localhost:11434";
-    public string Model { get; set; } = "qwen2.5:7b-instruct";
-    public List<string> FallbackModels { get; set; } = [];
-    public int TimeoutSeconds { get; set; } = 60;
-    public float Temperature { get; set; } = 0.2f;
-    public string PromptVersionCoach { get; set; } = "coach_v1";
-    public LlmRetryOptions Retry { get; set; } = new();
-    public LlmFallbackOptions Fallback { get; set; } = new();
-}
-
-public class LlmRetryOptions
-{
-    public int MaxAttemptsPrimary { get; set; } = 2;
-    public bool RetryOnInvalidJson { get; set; } = true;
-    public bool RetryOnTimeout { get; set; } = true;
-    public bool RetryOnHttp5xx { get; set; } = true;
-    public List<int> BackoffMs { get; set; } = [500, 1000];
-}
-
-public class LlmFallbackOptions
-{
-    public bool Enabled { get; set; } = true;
-    public bool TryFallbackModelsOnFailure { get; set; } = true;
-    public bool UseCachedSameInputHashIfAllFail { get; set; } = true;
-    public bool UseCachedAnyPreviousForSessionIfSameInputMissing { get; set; } = false;
-    public int CacheFallbackMaxAgeHours { get; set; } = 168;
-}
-
 public class LiveAnalysisInput
 {
     public string SessionId { get; set; } = string.Empty;
@@ -275,14 +236,4 @@ public class LiveAnalysisResult
             Timestamp = DateTime.UtcNow
         };
     }
-}
-
-file class OllamaChatResponse
-{
-    public OllamaMessage? Message { get; set; }
-}
-
-file class OllamaMessage
-{
-    public string? Content { get; set; }
 }
