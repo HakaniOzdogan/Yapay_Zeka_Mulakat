@@ -81,7 +81,7 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
     environment:
-      MODEL: ${SPEECH_MODEL:-medium}
+      MODEL: ${SPEECH_MODEL:-small}
       SPEECH_PROFILE: ${SPEECH_PROFILE:-auto}
       SPEECH_COMPUTE_TYPE: ${SPEECH_COMPUTE_TYPE:-int8}
       SPEECH_DEVICE: ${SPEECH_DEVICE:-cpu}

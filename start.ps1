@@ -249,7 +249,7 @@ $speechReadyUrl = "http://localhost:$speechPort/health/ready"
 $speechDiagnosticsUrl = "http://localhost:$speechPort/health/diagnostics"
 
 $env:SPEECH_PROFILE = $selectedProfile
-$env:SPEECH_MODEL = "medium"
+$env:SPEECH_MODEL = "small"
 $env:SPEECH_CPU_THREADS = "8"
 $env:SPEECH_NUM_WORKERS = "1"
 if ($selectedProfile -eq "gpu") {

@@ -5,12 +5,15 @@ FastAPI WebSocket transcription service for realtime interview sessions.
 ## WebSocket Contract (Backward Compatible)
 
 - Endpoint: `ws://<host>:8000/ws/transcribe?session_id=<id>&lang=tr|en`
+- Canonical live audio contract: `16 kHz mono PCM16`
 - Client -> Server:
   - `{"type":"audio","seq":n,"data_b64":"..."}`
   - `{"type":"end"}`
 - Server -> Client:
   - `{"type":"partial","text":"...","t_ms":...}`
   - `{"type":"final","segments":[{"start_ms":...,"end_ms":...,"text":"..."}],"stats":{"wpm":...,"filler_count":...,"pause_count":...,"pause_ms":...}}`
+
+Uploads sent to `POST /transcribe` may arrive as `webm/opus`, `ogg/opus`, `wav`, `mp3`, or `mp4`, and are normalized server-side to the same `16 kHz mono PCM16` contract before transcription.
 
 ## Hardening Features
 
@@ -25,11 +28,13 @@ FastAPI WebSocket transcription service for realtime interview sessions.
 
 ## Health and Metrics
 
-- `GET /health` -> basic liveliness
+- `GET /health` -> basic liveliness, returns quickly even while the speech model is still loading
 - `GET /health/ready` -> readiness with fields:
+  - `status`
   - `modelLoaded`
   - `failureReason`
   - `failureDetail`
+  - `startupState`
   - `activeSessions`
   - `maxConcurrentSessions`
   - `uptimeSec`
@@ -63,18 +68,18 @@ Required for runtime behavior tuning:
 - `MAX_AUDIO_BUFFER_MS_PER_CONN` (default `15000`)
 - `CLIENT_IDLE_TIMEOUT_SEC` (default `60`)
 - `TRANSCRIBE_TIMEOUT_SEC` (default `20`)
-- `VAD_SILENCE_MS` (default `850`)
+- `VAD_SILENCE_MS` (default `700`)
 - `VAD_ENERGY_THRESHOLD` (default `0.008`)
-- `VAD_MIN_SPEECH_MS` (default `350`)
-- `VAD_MIN_SPEECH_RATIO` (default `0.20`)
+- `VAD_MIN_SPEECH_MS` (default `400`)
+- `VAD_MIN_SPEECH_RATIO` (default `0.35`)
 - `VAD_DYNAMIC_THRESHOLD_MULTIPLIER` (default `2.4`)
-- `STREAM_DECODE_INTERVAL_MS` (default `750`)
+- `STREAM_DECODE_INTERVAL_MS` (default `650`)
 - `STREAM_DECODE_OVERLAP_MS` (default `800`)
 - `STREAM_MAX_ACTIVE_WINDOW_MS` (default `6000`)
 - `STREAM_COMMIT_AGREEMENT_PASSES` (default `2`)
 - `SPEECH_VAD_BACKEND` (default `silero`)
 - `SPEECH_VAD_FALLBACK` (default `energy`)
-- `MODEL` (default `large-v3-turbo`)
+- `MODEL` (default `small`)
 - `SPEECH_COMPUTE_TYPE` (default `int8`)
 - `SPEECH_DEVICE` (default `cpu`)
 
@@ -94,9 +99,10 @@ pytest tests
 
 ## Tuning Notes
 
-- Larger models and CPU-only deployments increase transcription latency.
+- `small` is the default fast profile. Move to `medium` only when you deliberately want more accuracy at the cost of slower startup and higher latency.
 - GPU yoksa `float16` kullanmayin. CPU varsayilani `SPEECH_COMPUTE_TYPE=int8` ve `SPEECH_DEVICE=cpu` olmalidir.
 - GPU kullanilacaksa `float16` veya `int8_float16` ayarlari bilincli olarak secilmeli ve hostta NVIDIA driver/toolkit hazir olmalidir.
+- Browser kayitlari `WebM + server normalize` olarak tasarlanmistir; dogrudan browser WAV zorlamak yerine upload tarafini tek kanonik `16 kHz mono PCM16` formata normalize etmek tercih edilir.
 - If queue drops increase, reduce client chunk rate, increase worker capacity, or reduce model size.
 - If readiness is healthy but final latency is high, tune `VAD_SILENCE_MS` and `MAX_AUDIO_BUFFER_MS_PER_CONN` conservatively.
 - If transcript starts hallucinating on room noise, first raise `VAD_MIN_SPEECH_MS` or `VAD_MIN_SPEECH_RATIO` before raising `VAD_ENERGY_THRESHOLD`.

@@ -77,7 +77,7 @@ class ServiceConfig:
             speech_vad_backend=os.getenv("SPEECH_VAD_BACKEND", "silero").strip().lower() or "silero",
             speech_vad_fallback=os.getenv("SPEECH_VAD_FALLBACK", "energy").strip().lower() or "energy",
             strict_quality_mode=_env_bool("STRICT_QUALITY_MODE", True),
-            model_name=os.getenv("MODEL", "medium"),
+            model_name=os.getenv("MODEL", "small"),
             cpu_threads=_env_int("SPEECH_CPU_THREADS", 8, 1, 32),
             num_workers=_env_int("SPEECH_NUM_WORKERS", 1, 1, 8),
         )
