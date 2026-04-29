@@ -3,6 +3,10 @@ param(
     [switch]$NoBrowser,
     [ValidateSet("auto", "gpu", "cpu")]
     [string]$SpeechProfile = "auto",
+    [ValidateSet("ultra", "balanced", "quality")]
+    [string]$LatencyProfile = "ultra",
+    [ValidateSet("tiny", "small", "medium", "vibevoice")]
+    [string]$SpeechModel = "medium",
     [string]$ComposeFile = "docker/docker-compose.yml"
 )
 
@@ -247,11 +251,62 @@ $swaggerUrl = "http://localhost:$apiPort/swagger"
 $speechHealthUrl = "http://localhost:$speechPort/health"
 $speechReadyUrl = "http://localhost:$speechPort/health/ready"
 $speechDiagnosticsUrl = "http://localhost:$speechPort/health/diagnostics"
+$selectedLatencyProfile = if (-not $PSBoundParameters.ContainsKey("LatencyProfile")) {
+    switch ($SpeechModel) {
+        "medium" { "balanced" }
+        "vibevoice" { "quality" }
+        default { $LatencyProfile }
+    }
+} else {
+    $LatencyProfile
+}
 
 $env:SPEECH_PROFILE = $selectedProfile
-$env:SPEECH_MODEL = "small"
+$env:SPEECH_MODEL = if ($SpeechModel -eq "vibevoice") { "microsoft/VibeVoice-ASR-HF" } else { $SpeechModel }
+$env:SPEECH_LATENCY_PROFILE = $selectedLatencyProfile
 $env:SPEECH_CPU_THREADS = "8"
 $env:SPEECH_NUM_WORKERS = "1"
+switch ($selectedLatencyProfile) {
+    "quality" {
+        $env:SPEECH_BEAM_SIZE = "2"
+        $env:SPEECH_BEST_OF = "2"
+        $env:SPEECH_NO_SPEECH_THRESHOLD = "0.65"
+    }
+    "balanced" {
+        $env:SPEECH_BEAM_SIZE = "1"
+        $env:SPEECH_BEST_OF = "1"
+        $env:SPEECH_NO_SPEECH_THRESHOLD = "0.6"
+    }
+    default {
+        $env:SPEECH_BEAM_SIZE = "1"
+        $env:SPEECH_BEST_OF = "1"
+        $env:SPEECH_NO_SPEECH_THRESHOLD = "0.6"
+    }
+}
+switch ($SpeechModel) {
+    "vibevoice" {
+        $env:STREAM_DECODE_INTERVAL_MS = "900"
+        $env:VAD_MIN_SPEECH_MS = "600"
+        $env:VAD_SILENCE_MS = "900"
+        $env:STREAM_COMMIT_AGREEMENT_PASSES = "1"
+        $env:STRICT_QUALITY_MODE = "false"
+        $env:SPEECH_VIBEVOICE_TOKENIZER_CHUNK_SIZE = "960000"
+    }
+    "medium" {
+        $env:STREAM_DECODE_INTERVAL_MS = "350"
+        $env:VAD_MIN_SPEECH_MS = "300"
+        $env:VAD_SILENCE_MS = "900"
+        $env:STREAM_COMMIT_AGREEMENT_PASSES = "1"
+        $env:STRICT_QUALITY_MODE = "true"
+    }
+    default {
+        $env:STREAM_DECODE_INTERVAL_MS = "200"
+        $env:VAD_MIN_SPEECH_MS = "250"
+        $env:VAD_SILENCE_MS = "500"
+        $env:STREAM_COMMIT_AGREEMENT_PASSES = "1"
+        $env:STRICT_QUALITY_MODE = "false"
+    }
+}
 if ($selectedProfile -eq "gpu") {
     $env:SPEECH_DEVICE = "cuda"
     $env:SPEECH_COMPUTE_TYPE = "int8_float16"
@@ -270,7 +325,8 @@ if ($selectedProfile -eq "gpu") {
 
 Write-Host "Starting Docker Compose services..." -ForegroundColor Cyan
 Write-Host "Speech profile: $selectedProfile" -ForegroundColor DarkGray
-Write-Host "Speech runtime: model=$($env:SPEECH_MODEL), device=$($env:SPEECH_DEVICE), compute=$($env:SPEECH_COMPUTE_TYPE), threads=$($env:SPEECH_CPU_THREADS)" -ForegroundColor DarkGray
+Write-Host "Speech runtime: model=$($env:SPEECH_MODEL), latency=$($env:SPEECH_LATENCY_PROFILE), beam=$($env:SPEECH_BEAM_SIZE), device=$($env:SPEECH_DEVICE), compute=$($env:SPEECH_COMPUTE_TYPE), threads=$($env:SPEECH_CPU_THREADS)" -ForegroundColor DarkGray
+Write-Host "Speech streaming tune: decode_interval=$($env:STREAM_DECODE_INTERVAL_MS)ms, vad_min_speech=$($env:VAD_MIN_SPEECH_MS)ms, vad_silence=$($env:VAD_SILENCE_MS)ms, agreement_passes=$($env:STREAM_COMMIT_AGREEMENT_PASSES), strict_quality=$($env:STRICT_QUALITY_MODE)" -ForegroundColor DarkGray
 & docker compose @composeArgs up --build -d
 
 if ($LASTEXITCODE -ne 0) {
@@ -323,6 +379,10 @@ Write-Host "- Speech:   $speechReadyUrl"
 if ($speechDiagnostics) {
     Write-Host "- Speech profile: $selectedProfile" -ForegroundColor Green
     Write-Host "- Speech model: $($speechDiagnostics.model)" -ForegroundColor Green
+    Write-Host "- Latency profile: $($speechDiagnostics.latency_profile)" -ForegroundColor Green
+    Write-Host "- Beam / best_of: $($speechDiagnostics.beam_size) / $($speechDiagnostics.best_of)" -ForegroundColor Green
+    Write-Host "- Stream decode / VAD silence: $($speechDiagnostics.stream_decode_interval_ms)ms / $($speechDiagnostics.vad_silence_ms)ms" -ForegroundColor Green
+    Write-Host "- VAD min speech / agreement: $($speechDiagnostics.vad_min_speech_ms)ms / $($speechDiagnostics.stream_commit_agreement_passes)" -ForegroundColor Green
     Write-Host "- Speech device: $($speechDiagnostics.device)" -ForegroundColor Green
     Write-Host "- Speech compute: $($speechDiagnostics.compute_type)" -ForegroundColor Green
     Write-Host "- Audio contract: $($speechDiagnostics.audio_input_contract)" -ForegroundColor Green

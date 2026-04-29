@@ -32,6 +32,7 @@ import { Calibration, HeadPose, PoseLandmarks, VisionMetrics } from '../vision/t
 import { VideoCanvas } from '../components/VideoCanvas'
 import { LiveHints } from '../components/LiveHints'
 import { TranscriptModal } from '../components/TranscriptModal'
+import { LiveTranscript } from '../components/LiveTranscript'
 import '../styles/pages.css'
 
 const VISION_DEBUG_OVERLAY = true
@@ -449,7 +450,11 @@ function InterviewSession() {
       }
 
       const stream = await navigator.mediaDevices.getUserMedia({
-        audio: true,
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
+        },
         video: { width: { ideal: 1280 }, height: { ideal: 720 } }
       })
 
@@ -1019,8 +1024,17 @@ function InterviewSession() {
     const recordedChunks = [...audioChunksRef.current]
     audioChunksRef.current = []
     const isLastQuestion = currentQuestionIndex >= questions.length - 1
+    const questionOrder = currentQuestionIndex + 1 // 1-based
 
     if (recordedChunks.length > 0) {
+      const mimeType = recordingMimeTypeRef.current || 'audio/webm'
+      const audioBlob = new Blob(recordedChunks, { type: mimeType })
+
+      // Upload the raw audio (fire-and-forget, don't block UX)
+      if (sessionId) {
+        void ApiService.uploadQuestionAudio(sessionId, questionOrder, audioBlob, mimeType)
+      }
+
       if (isLastQuestion) {
         // Final question: wait once so report can include the latest transcript.
         try {
@@ -1039,6 +1053,7 @@ function InterviewSession() {
 
     proceedToNext()
   }
+
 
   const proceedToNext = () => {
     if (currentQuestionIndex < questions.length - 1) {
@@ -1321,13 +1336,12 @@ function InterviewSession() {
                       Speak naturally. Finalized transcript lines appear after short pauses.
                     </div>
                   )}
-                  {liveTranscriptLines.map((line, idx) => (
-                    <div key={`${idx}-${line.slice(0, 12)}`} className="live-transcript-line">
-                      {line}
-                    </div>
-                  ))}
-                  {liveTranscriptInterim && (
-                    <div className="live-transcript-interim">{liveTranscriptInterim}</div>
+                  {(liveTranscriptLines.length > 0 || liveTranscriptInterim) && (
+                    <LiveTranscript
+                      finalSegments={liveTranscriptLines}
+                      partialText={liveTranscriptInterim}
+                      isConnected={asrStatus === 'connected'}
+                    />
                   )}
                   {(isRecording || speechReadyMessage || lastPartialAt || lastFinalAt) && (
                     <div className="live-transcript-diagnostics">

@@ -506,6 +506,18 @@ BEGIN
     END IF;
 END $$;");
 
+    await db.Database.ExecuteSqlRawAsync(@"
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_name = 'Questions' AND column_name = 'AudioUrl'
+    ) THEN
+        ALTER TABLE ""Questions"" ADD COLUMN ""AudioUrl"" text NULL;
+    END IF;
+END $$;");
+
     var passwordHasher = scope.ServiceProvider.GetRequiredService<IPasswordHasher<User>>();
     await SeedAdminIfConfiguredAsync(
         db,
@@ -637,6 +649,16 @@ app.UseCors("Frontend");
 app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
+
+// Serve audio recordings stored in /app/audio/
+var audioPhysicalPath = Path.Combine(app.Environment.ContentRootPath, "audio");
+Directory.CreateDirectory(audioPhysicalPath);
+app.UseStaticFiles(new StaticFileOptions
+{
+    FileProvider = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(audioPhysicalPath),
+    RequestPath = "/audio"
+});
+
 app.MapControllers();
 
 app.Run();

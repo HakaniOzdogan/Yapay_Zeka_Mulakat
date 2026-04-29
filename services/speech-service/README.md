@@ -79,7 +79,7 @@ Required for runtime behavior tuning:
 - `STREAM_COMMIT_AGREEMENT_PASSES` (default `2`)
 - `SPEECH_VAD_BACKEND` (default `silero`)
 - `SPEECH_VAD_FALLBACK` (default `energy`)
-- `MODEL` (default `small`)
+- `MODEL` (default `microsoft/VibeVoice-ASR-HF`)
 - `SPEECH_COMPUTE_TYPE` (default `int8`)
 - `SPEECH_DEVICE` (default `cpu`)
 
@@ -97,9 +97,18 @@ pip install -r tests/requirements.txt
 pytest tests
 ```
 
+Startup examples:
+
+```powershell
+.\start.ps1 -SpeechModel vibevoice
+.\start.ps1 -SpeechModel medium
+.\start.ps1 -SpeechModel medium -LatencyProfile quality
+```
+
 ## Tuning Notes
 
-- `small` is the default fast profile. Move to `medium` only when you deliberately want more accuracy at the cost of slower startup and higher latency.
+- `microsoft/VibeVoice-ASR-HF` is now the default startup profile. It is heavier than Whisper-family models and may take longer to become ready on first boot.
+- `medium` remains the safer low-latency fallback when you want faster startup and more responsive live transcript behavior.
 - GPU yoksa `float16` kullanmayin. CPU varsayilani `SPEECH_COMPUTE_TYPE=int8` ve `SPEECH_DEVICE=cpu` olmalidir.
 - GPU kullanilacaksa `float16` veya `int8_float16` ayarlari bilincli olarak secilmeli ve hostta NVIDIA driver/toolkit hazir olmalidir.
 - Browser kayitlari `WebM + server normalize` olarak tasarlanmistir; dogrudan browser WAV zorlamak yerine upload tarafini tek kanonik `16 kHz mono PCM16` formata normalize etmek tercih edilir.

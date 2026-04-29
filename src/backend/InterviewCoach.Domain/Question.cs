@@ -13,6 +13,8 @@ public class Question
     
     public string Prompt { get; set; } = string.Empty;
     
+    public string? AudioUrl { get; set; }
+    
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     
     // Navigation

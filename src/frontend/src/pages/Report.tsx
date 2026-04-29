@@ -21,6 +21,14 @@ interface ScoreCompareField {
   fallbackKey: 'eyeContact' | 'speakingRate' | 'fillerWords' | 'posture' | 'overall'
 }
 
+interface ReportQuestion {
+  id: string
+  order: number
+  prompt: string
+  audioUrl?: string | null
+  createdAt?: string
+}
+
 const SCORE_COMPARE_FIELDS: ScoreCompareField[] = [
   { label: 'Eye Contact', key: 'eyeContactScore', fallbackKey: 'eyeContact' },
   { label: 'Speaking Rate', key: 'speakingRateScore', fallbackKey: 'speakingRate' },
@@ -28,6 +36,8 @@ const SCORE_COMPARE_FIELDS: ScoreCompareField[] = [
   { label: 'Posture', key: 'postureScore', fallbackKey: 'posture' },
   { label: 'Overall', key: 'overallScore', fallbackKey: 'overall' }
 ]
+
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080/api'
 
 function Report() {
   const { sessionId } = useParams<{ sessionId: string }>()
@@ -216,6 +226,23 @@ function Report() {
     return null
   }
 
+  const resolveAudioUrl = (audioUrl?: string | null): string | null => {
+    const trimmed = audioUrl?.trim()
+    if (!trimmed) {
+      return null
+    }
+
+    if (/^(https?:|blob:|data:)/i.test(trimmed)) {
+      return trimmed
+    }
+
+    if (trimmed.startsWith('/')) {
+      return `${new URL(API_BASE_URL, window.location.origin).origin}${trimmed}`
+    }
+
+    return trimmed
+  }
+
   const generateAiCoaching = async () => {
     if (!sessionId) return
 
@@ -386,6 +413,10 @@ function Report() {
         }))
       : [])
 
+  const questions: ReportQuestion[] = Array.isArray(report.questions)
+    ? [...report.questions].sort((a: ReportQuestion, b: ReportQuestion) => (a.order ?? 0) - (b.order ?? 0))
+    : []
+
   const metrics: ScoreMetric[] = [
     {
       label: 'Eye Contact',
@@ -472,6 +503,43 @@ function Report() {
               </div>
             ))}
           </div>
+        </div>
+
+        <div className="feedback-section question-audio-section" data-testid="question-audio-section">
+          <h2>Sorular ve Ses Kayitlari</h2>
+          {questions.length > 0 ? (
+            <div className="question-audio-list">
+              {questions.map((question) => {
+                const audioSrc = resolveAudioUrl(question.audioUrl)
+
+                return (
+                  <div key={question.id || question.order} className="question-audio-card" data-testid={`question-audio-card-${question.order}`}>
+                    <div className="question-audio-meta">Soru {question.order}</div>
+                    <div className="question-audio-prompt">{question.prompt}</div>
+                    {audioSrc ? (
+                      <audio
+                        className="question-audio-player"
+                        controls
+                        preload="metadata"
+                        src={audioSrc}
+                        data-testid={`question-audio-player-${question.order}`}
+                      >
+                        Audio playback is not supported by this browser.
+                      </audio>
+                    ) : (
+                      <div className="question-audio-empty" data-testid={`question-audio-empty-${question.order}`}>
+                        Ses kaydi yok.
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          ) : (
+            <div className="no-feedback">
+              <p>Soru kaydi bulunamadi.</p>
+            </div>
+          )}
         </div>
 
         <div className="ai-coach-section" data-testid="ai-coach-section">

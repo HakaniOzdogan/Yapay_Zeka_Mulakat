@@ -490,6 +490,27 @@ class ApiService {
     return response.data
   }
 
+  // Upload raw audio blob for a specific question
+  async uploadQuestionAudio(sessionId: string, questionOrder: number, audioBlob: Blob, mimeType: string): Promise<{ audioUrl: string } | null> {
+    try {
+      const ext = mimeType.includes('ogg') ? 'ogg'
+        : mimeType.includes('mpeg') ? 'mp3'
+        : mimeType.includes('mp4') ? 'm4a'
+        : 'webm'
+      const formData = new FormData()
+      formData.append('file', audioBlob, `q${questionOrder}.${ext}`)
+      const response = await this.client.post(
+        `/sessions/${sessionId}/questions/${questionOrder}/audio`,
+        formData,
+        { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 60000 }
+      )
+      return response.data as { audioUrl: string }
+    } catch (err) {
+      console.warn('Audio upload failed:', err)
+      return null
+    }
+  }
+
   async postSessionEventsBatch(sessionId: string, events: MetricEventIngestDto[]) {
     const response = await this.client.post(
       `/sessions/${sessionId}/events/batch`,

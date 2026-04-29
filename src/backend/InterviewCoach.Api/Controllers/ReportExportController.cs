@@ -147,6 +147,20 @@ public class ReportExportController : ControllerBase
             })
             .ToListAsync(cancellationToken);
 
+        var questions = await _db.Questions
+            .AsNoTracking()
+            .Where(q => q.SessionId == sessionId)
+            .OrderBy(q => q.Order)
+            .Select(q => new ReportQuestionDto
+            {
+                Id = q.Id,
+                Order = q.Order,
+                Prompt = q.Prompt,
+                AudioUrl = q.AudioUrl,
+                CreatedAt = q.CreatedAt
+            })
+            .ToListAsync(cancellationToken);
+
         var derivedSeries = DerivedKeys.ToDictionary(
             key => key,
             _ => new List<DerivedPointDto>());
@@ -156,6 +170,7 @@ public class ReportExportController : ControllerBase
             Session = session,
             ScoreCard = scoreCard,
             Patterns = patterns,
+            Questions = questions,
             DerivedSeries = derivedSeries,
             Transcript = [],
             TranscriptNotice = "Transcript is disabled in this build."
@@ -298,6 +313,10 @@ public class ReportExportController : ControllerBase
         }
 
         sb.AppendLine();
+        sb.AppendLine("## Questions and Audio Recordings");
+        AppendQuestionsAndAudio(sb, report);
+
+        sb.AppendLine();
         sb.AppendLine("## Patterns");
         if (report.Patterns.Count == 0)
         {
@@ -348,6 +367,21 @@ public class ReportExportController : ControllerBase
         AppendTranscriptExcerpt(sb, report, evidenceSummary);
 
         return sb.ToString();
+    }
+
+    private static void AppendQuestionsAndAudio(StringBuilder sb, ReportDto report)
+    {
+        if (report.Questions.Count == 0)
+        {
+            sb.AppendLine("- No questions found.");
+            return;
+        }
+
+        foreach (var question in report.Questions)
+        {
+            sb.AppendLine($"- Soru {question.Order}: {NormalizeMarkdownLine(question.Prompt)}");
+            sb.AppendLine($"  - Audio: {ToAudioText(question.AudioUrl)}");
+        }
     }
 
     private static void AppendAiCoach(StringBuilder sb, JsonElement coaching)
@@ -497,6 +531,14 @@ public class ReportExportController : ControllerBase
     private static string ToText(int? value) => value?.ToString() ?? "-";
 
     private static string ToFixed(double? value) => value.HasValue ? value.Value.ToString("0.###") : "-";
+
+    private static string ToAudioText(string? audioUrl)
+        => string.IsNullOrWhiteSpace(audioUrl) ? "Not available" : audioUrl.Trim();
+
+    private static string NormalizeMarkdownLine(string? value)
+        => string.IsNullOrWhiteSpace(value)
+            ? "-"
+            : value.Replace("\r", " ").Replace("\n", " ").Trim();
 }
 
 public class ReportExportPackageDto

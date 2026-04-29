@@ -3,6 +3,10 @@ param(
     [switch]$RemoveVolumes,
     [ValidateSet("auto", "gpu", "cpu")]
     [string]$SpeechProfile = "auto",
+    [ValidateSet("ultra", "balanced", "quality")]
+    [string]$LatencyProfile = "ultra",
+    [ValidateSet("tiny", "small", "medium", "vibevoice")]
+    [string]$SpeechModel = "vibevoice",
     [string]$ComposeFile = "docker/docker-compose.yml"
 )
 
@@ -67,6 +71,15 @@ function Resolve-SpeechRuntimeProfile {
 }
 
 $selectedProfile = Resolve-SpeechRuntimeProfile -RequestedProfile $SpeechProfile
+$selectedLatencyProfile = if (-not $PSBoundParameters.ContainsKey("LatencyProfile")) {
+    switch ($SpeechModel) {
+        "medium" { "balanced" }
+        "vibevoice" { "quality" }
+        default { $LatencyProfile }
+    }
+} else {
+    $LatencyProfile
+}
 $composeArgs = @("-f", $composeFile)
 if ($selectedProfile -eq "gpu" -and (Test-Path $gpuComposeFile)) {
     $composeArgs += @("-f", $gpuComposeFile)
@@ -77,7 +90,7 @@ if ($RemoveVolumes) {
 }
 
 Write-Host "Stopping Docker services..." -ForegroundColor Yellow
-Write-Host "Speech profile: $selectedProfile" -ForegroundColor DarkGray
+Write-Host "Speech profile: $selectedProfile | model: $SpeechModel | latency: $selectedLatencyProfile" -ForegroundColor DarkGray
 & docker compose @composeArgs
 
 if ($LASTEXITCODE -ne 0) {

@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using InterviewCoach.Infrastructure;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -88,6 +89,20 @@ public class ReportsController : ControllerBase
             })
             .ToListAsync();
 
+        var questions = await _db.Questions
+            .AsNoTracking()
+            .Where(q => q.SessionId == sessionId)
+            .OrderBy(q => q.Order)
+            .Select(q => new ReportQuestionDto
+            {
+                Id = q.Id,
+                Order = q.Order,
+                Prompt = q.Prompt,
+                AudioUrl = q.AudioUrl,
+                CreatedAt = q.CreatedAt
+            })
+            .ToListAsync();
+
         var derivedSeries = DerivedKeys.ToDictionary(
             key => key,
             _ => new List<DerivedPointDto>());
@@ -97,6 +112,7 @@ public class ReportsController : ControllerBase
             Session = session,
             ScoreCard = scoreCard,
             Patterns = patterns,
+            Questions = questions,
             DerivedSeries = derivedSeries,
             Transcript = [],
             TranscriptNotice = "Transcript is disabled in this build."
@@ -116,6 +132,9 @@ public class ReportDto
 
     /// <summary>Detected pattern hits.</summary>
     public List<PatternDto> Patterns { get; set; } = [];
+
+    /// <summary>Ordered questions and their answer audio URLs when available.</summary>
+    public List<ReportQuestionDto> Questions { get; set; } = [];
 
     /// <summary>Derived metric time series grouped by metric type.</summary>
     public Dictionary<string, List<DerivedPointDto>> DerivedSeries { get; set; } = [];
@@ -155,6 +174,18 @@ public class PatternDto
     public long? EndMs { get; set; }
     public int Severity { get; set; }
     public string Evidence { get; set; } = string.Empty;
+}
+
+public class ReportQuestionDto
+{
+    public Guid Id { get; set; }
+    public int Order { get; set; }
+    public string Prompt { get; set; } = string.Empty;
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public string? AudioUrl { get; set; }
+
+    public DateTime CreatedAt { get; set; }
 }
 
 public class DerivedPointDto

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import io
 import logging
+import os
 import struct
 from typing import Any
 
@@ -36,6 +37,9 @@ class FasterWhisperBackend(BaseAsrBackend):
         self._num_workers = num_workers
         self._download_root = download_root
         self._strict_quality_mode = strict_quality_mode
+        self._beam_size = _env_int("SPEECH_BEAM_SIZE", 1, 1, 10)
+        self._best_of = _env_int("SPEECH_BEST_OF", 1, 1, 10)
+        self._no_speech_threshold = _env_float("SPEECH_NO_SPEECH_THRESHOLD", 0.6, 0.0, 1.0)
         self._models: dict[str, Any] = {}
         self._locks: dict[str, asyncio.Lock] = {}
 
@@ -135,10 +139,11 @@ class FasterWhisperBackend(BaseAsrBackend):
                     wav_buffer,
                     language=language,
                     task=task,
-                    beam_size=5,
+                    beam_size=self._beam_size,
+                    best_of=self._best_of,
                     vad_filter=False,
                     condition_on_previous_text=False,
-                    no_speech_threshold=0.7,
+                    no_speech_threshold=self._no_speech_threshold,
                 )
                 return list(segments), info
 
@@ -171,6 +176,7 @@ class FasterWhisperBackend(BaseAsrBackend):
                 continue
             kept_segments_raw.append(seg)
             all_words.extend(seg_text.split())
+            print(f"\n\n🎙️ ALGILANAN KELİME: {seg_text}\n\n", flush=True)
             segments_out.append(
                 {
                     "start_ms": int(start_ms + seg.start * 1000),
@@ -233,6 +239,9 @@ class FasterWhisperBackend(BaseAsrBackend):
             },
             "meta": {
                 "strict_quality_mode": self._strict_quality_mode,
+                "beam_size": self._beam_size,
+                "best_of": self._best_of,
+                "no_speech_threshold": self._no_speech_threshold,
                 "filtered_segments": dropped_segments,
                 "window_suppressed": window_suppressed,
                 "empty_result": bool(segments_raw) and not segments_out,
@@ -290,33 +299,17 @@ def _should_keep_segment(segment: Any, text: str) -> bool:
     avg_logprob = _safe_float(getattr(segment, "avg_logprob", None))
     no_speech_prob = _safe_float(getattr(segment, "no_speech_prob", None))
     compression_ratio = _safe_float(getattr(segment, "compression_ratio", None))
-    duration_sec = max(
-        0.0,
-        _safe_float(getattr(segment, "end", 0.0)) - _safe_float(getattr(segment, "start", 0.0)),
-    )
 
-    if no_speech_prob >= 0.95 and word_count <= 8:
+    # Çok belirgin sessizlik veya net halüsinasyonları engelle (Filtreler çok gevşetildi)
+    if no_speech_prob >= 0.98 and word_count <= 10:
         return False
 
-    if no_speech_prob >= 0.88 and word_count <= 6:
+    # Güven skoru aşırı düşükse (artık sadece felaket durumlarında silecek)
+    if avg_logprob <= -2.0 and word_count <= 8:
         return False
 
-    if avg_logprob <= -1.5 and word_count <= 8:
-        return False
-
-    if avg_logprob <= -1.1 and word_count <= 6:
-        return False
-
-    if compression_ratio >= 2.4 and avg_logprob <= -0.7:
-        return False
-
-    if compression_ratio >= 2.8 and avg_logprob <= -0.9:
-        return False
-
-    if duration_sec >= 1.2 and word_count <= 1 and no_speech_prob >= 0.85:
-        return False
-
-    if duration_sec <= 1.4 and word_count <= 3 and no_speech_prob >= 0.82 and avg_logprob <= -0.8:
+    # Yüksek sıkıştırma oranı (anlamsız tekrar eden sesler vb.)
+    if compression_ratio >= 3.0 and avg_logprob <= -1.5:
         return False
 
     return True
@@ -329,27 +322,20 @@ def _should_suppress_window(segments: list[Any]) -> bool:
     total_words = 0
     highest_no_speech = 0.0
     lowest_logprob = 0.0
-    all_short = True
-    all_compressed = True
     for seg in segments:
         seg_text = (getattr(seg, "text", "") or "").strip()
         word_count = len(seg_text.split())
         total_words += word_count
         no_speech_prob = _safe_float(getattr(seg, "no_speech_prob", None))
         avg_logprob = _safe_float(getattr(seg, "avg_logprob", None))
-        compression_ratio = _safe_float(getattr(seg, "compression_ratio", None))
         highest_no_speech = max(highest_no_speech, no_speech_prob)
         lowest_logprob = min(lowest_logprob, avg_logprob)
-        all_short = all_short and word_count <= 3
-        all_compressed = all_compressed and compression_ratio >= 2.2
 
-    if total_words <= 3 and highest_no_speech >= 0.72:
+    # 1-2 kelimelik kısa cevapların silinmemesi için eşikler çok esnetildi
+    if total_words <= 2 and highest_no_speech >= 0.95:
         return True
 
-    if total_words <= 5 and highest_no_speech >= 0.58 and lowest_logprob <= -0.85:
-        return True
-
-    if total_words <= 6 and all_short and all_compressed and lowest_logprob <= -0.6:
+    if total_words <= 4 and highest_no_speech >= 0.90 and lowest_logprob <= -1.5:
         return True
 
     return False
@@ -388,3 +374,25 @@ def _json_log(event: str, **fields: Any) -> str:
 
     payload: dict[str, Any] = {"event": event, **fields}
     return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+
+
+def _env_int(name: str, default: int, min_value: int, max_value: int) -> int:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        return default
+    return max(min_value, min(max_value, value))
+
+
+def _env_float(name: str, default: float, min_value: float, max_value: float) -> float:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        value = float(raw)
+    except ValueError:
+        return default
+    return max(min_value, min(max_value, value))

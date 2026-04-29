@@ -74,10 +74,19 @@ export interface StreamingAsrReadiness {
 
 export interface SpeechDiagnostics {
   model: string
+  asr_backend?: string
   model_ready: boolean
   compute_type: string
   device: string
   audio_input_contract: string
+  latency_profile?: string
+  beam_size?: number
+  best_of?: number
+  client_chunk_ms?: number
+  stream_decode_interval_ms?: number
+  stream_commit_agreement_passes?: number
+  vad_min_speech_ms?: number
+  vad_silence_ms?: number
   live_input_sample_rate: number
   live_input_channels: number
   live_input_chunk_ms: number
@@ -111,7 +120,7 @@ export interface SpeechDiagnostics {
 }
 
 const TARGET_SAMPLE_RATE = 16000
-const CHUNK_MS = 250
+const CHUNK_MS = 1000
 const CHUNK_SAMPLES = (TARGET_SAMPLE_RATE * CHUNK_MS) / 1000
 const WS_MAX_BUFFERED_AMOUNT = 1_000_000
 const WS_MAX_QUEUE = 24
@@ -359,6 +368,21 @@ async function createAudioPipeline(
   const source = audioContext.createMediaStreamSource(stream)
   const sampleRate = audioContext.sampleRate
 
+  // --- Studio Equalizer Filters ---
+  const highPass = audioContext.createBiquadFilter()
+  highPass.type = 'highpass'
+  highPass.frequency.value = 80 // Cut low-end rumble/wind
+
+  const highShelf = audioContext.createBiquadFilter()
+  highShelf.type = 'highshelf'
+  highShelf.frequency.value = 3000 // Boost speech presence/treble
+  highShelf.gain.value = 10 // +10dB to fix muffled audio
+
+  source.connect(highPass)
+  highPass.connect(highShelf)
+  const finalSource = highShelf
+  // --------------------------------
+
   const cleanup: Array<() => void> = []
 
   const buildWorklet = async (): Promise<AudioPipeline> => {
@@ -391,13 +415,13 @@ async function createAudioPipeline(
     }
     const silentGain = audioContext.createGain()
     silentGain.gain.value = 0
-    source.connect(node)
+    finalSource.connect(node)
     node.connect(silentGain)
     silentGain.connect(audioContext.destination)
 
     cleanup.push(() => {
       try {
-        source.disconnect(node)
+        finalSource.disconnect(node)
       } catch {
         // no-op
       }
@@ -430,13 +454,13 @@ async function createAudioPipeline(
 
     const silentGain = audioContext.createGain()
     silentGain.gain.value = 0
-    source.connect(processor)
+    finalSource.connect(processor)
     processor.connect(silentGain)
     silentGain.connect(audioContext.destination)
 
     cleanup.push(() => {
       try {
-        source.disconnect(processor)
+        finalSource.disconnect(processor)
       } catch {
         // no-op
       }

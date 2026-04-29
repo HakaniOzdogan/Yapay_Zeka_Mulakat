@@ -92,6 +92,14 @@ def test_health_diagnostics_exposes_quality_fields(monkeypatch) -> None:
     assert body["audio_input_contract"] == "pcm_s16le/16000hz/mono"
     assert body["startup_state"] == "ready"
     assert body["model_loading"] is False
+    assert body["latency_profile"] == "ultra"
+    assert body["beam_size"] == 1
+    assert body["best_of"] == 1
+    assert body["client_chunk_ms"] == 200
+    assert body["stream_decode_interval_ms"] == speech_main.config.stream_decode_interval_ms
+    assert body["stream_commit_agreement_passes"] == speech_main.config.stream_commit_agreement_passes
+    assert body["vad_min_speech_ms"] == speech_main.config.vad_min_speech_ms
+    assert body["vad_silence_ms"] == speech_main.config.vad_silence_ms
     assert body["live_input_sample_rate"] == 16000
     assert body["live_input_channels"] == 1
     assert body["filtered_decode_results_total"] == 4

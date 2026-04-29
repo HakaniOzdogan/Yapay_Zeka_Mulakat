@@ -1,5 +1,6 @@
 using InterviewCoach.Domain;
 using InterviewCoach.Infrastructure;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
@@ -96,6 +97,49 @@ public class QuestionsController : ControllerBase
         return Ok(questions.Select(ToDto).ToList());
     }
 
+    /// <summary>
+    /// Uploads the audio recording for a specific question (by 1-based order index).
+    /// </summary>
+    [Authorize]
+    [HttpPost("{questionOrder:int}/audio")]
+    [RequestSizeLimit(50 * 1024 * 1024)] // 50 MB max
+    public async Task<ActionResult<QuestionAudioUploadResponse>> UploadQuestionAudio(
+        Guid sessionId,
+        int questionOrder,
+        IFormFile file,
+        CancellationToken cancellationToken)
+    {
+        var question = await _db.Questions
+            .FirstOrDefaultAsync(q => q.SessionId == sessionId && q.Order == questionOrder, cancellationToken);
+
+        if (question == null)
+            return NotFound(new { error = $"Question with order {questionOrder} not found for session {sessionId}." });
+
+        if (file == null || file.Length == 0)
+            return BadRequest(new { error = "Audio file is empty." });
+
+        // Store the audio file in /app/audio/{sessionId}/ inside the container
+        var audioDir = Path.Combine("audio", sessionId.ToString());
+        Directory.CreateDirectory(audioDir);
+
+        var ext = Path.GetExtension(file.FileName);
+        if (string.IsNullOrWhiteSpace(ext)) ext = ".webm";
+        var fileName = $"q{questionOrder}{ext}";
+        var filePath = Path.Combine(audioDir, fileName);
+
+        await using (var stream = System.IO.File.Create(filePath))
+        {
+            await file.CopyToAsync(stream, cancellationToken);
+        }
+
+        // Store the relative URL so the client can fetch via /audio/{sessionId}/q{n}.webm
+        var audioUrl = $"/audio/{sessionId}/{fileName}";
+        question.AudioUrl = audioUrl;
+        await _db.SaveChangesAsync(cancellationToken);
+
+        return Ok(new QuestionAudioUploadResponse { AudioUrl = audioUrl });
+    }
+
     private QuestionDto ToDto(Question q)
     {
         return new QuestionDto
@@ -104,6 +148,7 @@ public class QuestionsController : ControllerBase
             SessionId = q.SessionId,
             Order = q.Order,
             Prompt = q.Prompt,
+            AudioUrl = q.AudioUrl,
             CreatedAt = q.CreatedAt
         };
     }
@@ -115,5 +160,11 @@ public class QuestionDto
     public Guid SessionId { get; set; }
     public int Order { get; set; }
     public string Prompt { get; set; } = string.Empty;
+    public string? AudioUrl { get; set; }
     public DateTime CreatedAt { get; set; }
+}
+
+public class QuestionAudioUploadResponse
+{
+    public string AudioUrl { get; set; } = string.Empty;
 }

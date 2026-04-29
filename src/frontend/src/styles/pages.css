@@ -1064,6 +1064,7 @@
 }
 
 .feedback-list,
+.question-audio-list,
 .ai-feedback-list,
 .ai-drills {
   display: flex;
@@ -1072,12 +1073,41 @@
 }
 
 .feedback-card,
+.question-audio-card,
 .ai-feedback-card,
 .ai-drill-card {
   padding: 18px;
   border-radius: 18px;
   background: rgba(20, 19, 19, 0.46);
   border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.question-audio-card {
+  display: grid;
+  gap: 12px;
+}
+
+.question-audio-meta {
+  color: var(--lx-primary);
+  font-size: 0.78rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.question-audio-prompt {
+  color: var(--lx-text-primary);
+  font-size: 1rem;
+  line-height: 1.6;
+}
+
+.question-audio-player {
+  width: 100%;
+  min-height: 42px;
+}
+
+.question-audio-empty {
+  color: var(--lx-text-secondary);
+  font-size: 0.92rem;
 }
 
 .feedback-header,
@@ -1232,4 +1262,72 @@
     padding: 20px;
     border-radius: 22px;
   }
+}
+
+/* Live Transcript Animations & Styles */
+
+@keyframes wordAppear {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes transcript-blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+.live-transcript-content {
+  max-height: 270px;
+  overflow-y: auto;
+  padding: 0;
+}
+
+.live-transcript-paragraph {
+  margin: 0;
+  padding: 18px;
+  color: var(--lx-text-secondary);
+  line-height: 1.6;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+}
+
+.live-transcript-word {
+  display: inline;
+  color: var(--lx-text-primary);
+  margin-right: 0;
+}
+
+.live-transcript-word::after {
+  content: ' ';
+}
+
+.live-transcript-word:last-of-type::after {
+  content: '';
+}
+
+.word-new {
+  animation: wordAppear 120ms ease-out forwards;
+}
+
+.word-partial {
+  opacity: 0.6;
+  font-style: italic;
+  color: var(--lx-primary);
+}
+
+.transcript-cursor {
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  background: currentColor;
+  margin-left: 4px;
+  vertical-align: text-bottom;
+  animation: transcript-blink 1s step-end infinite;
 }

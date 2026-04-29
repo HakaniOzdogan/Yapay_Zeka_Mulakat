@@ -83,18 +83,27 @@ services:
     environment:
       MODEL: ${SPEECH_MODEL:-small}
       SPEECH_PROFILE: ${SPEECH_PROFILE:-auto}
+      SPEECH_LATENCY_PROFILE: ${SPEECH_LATENCY_PROFILE:-ultra}
+      SPEECH_BEAM_SIZE: ${SPEECH_BEAM_SIZE:-1}
+      SPEECH_BEST_OF: ${SPEECH_BEST_OF:-1}
+      SPEECH_NO_SPEECH_THRESHOLD: ${SPEECH_NO_SPEECH_THRESHOLD:-0.6}
       SPEECH_COMPUTE_TYPE: ${SPEECH_COMPUTE_TYPE:-int8}
       SPEECH_DEVICE: ${SPEECH_DEVICE:-cpu}
       SPEECH_CPU_THREADS: ${SPEECH_CPU_THREADS:-8}
       SPEECH_NUM_WORKERS: ${SPEECH_NUM_WORKERS:-1}
+      STREAM_DECODE_INTERVAL_MS: ${STREAM_DECODE_INTERVAL_MS:-200}
+      STREAM_COMMIT_AGREEMENT_PASSES: ${STREAM_COMMIT_AGREEMENT_PASSES:-1}
+      VAD_MIN_SPEECH_MS: ${VAD_MIN_SPEECH_MS:-300}
+      VAD_SILENCE_MS: ${VAD_SILENCE_MS:-900}
+      STRICT_QUALITY_MODE: ${STRICT_QUALITY_MODE:-true}
     volumes:
       - speech_model_cache:/root/.cache/huggingface
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://localhost:8000/health || exit 1"]
-      interval: 15s
+      interval: 10s
       timeout: 10s
       retries: 20
-      start_period: 300s
+      start_period: 90s
     ports:
       - "${SPEECH_PORT:-8000}:8000"
 

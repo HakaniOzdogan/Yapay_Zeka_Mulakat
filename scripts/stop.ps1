@@ -2,7 +2,11 @@
 param(
     [switch]$RemoveVolumes,
     [ValidateSet("auto", "gpu", "cpu")]
-    [string]$SpeechProfile = "auto"
+    [string]$SpeechProfile = "auto",
+    [ValidateSet("ultra", "balanced", "quality")]
+    [string]$LatencyProfile = "ultra",
+    [ValidateSet("tiny", "small", "medium", "vibevoice")]
+    [string]$SpeechModel = "vibevoice"
 )
 
 $ErrorActionPreference = "Stop"
@@ -14,4 +18,4 @@ if (-not (Test-Path $rootScript)) {
     throw "Root stop script not found: $rootScript"
 }
 
-& $rootScript -RemoveVolumes:$RemoveVolumes -SpeechProfile $SpeechProfile
+& $rootScript -RemoveVolumes:$RemoveVolumes -SpeechProfile $SpeechProfile -LatencyProfile $LatencyProfile -SpeechModel $SpeechModel

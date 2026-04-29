@@ -19,7 +19,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse
 from starlette.websockets import WebSocketState
 
-from .backends import FasterWhisperBackend, TranscriptionError
+from .backends import FasterWhisperBackend, MultiplexAsrBackend, TranscriptionError, VibeVoiceBackend
 from .protocol import ClientAudioMessage, ClientConfigMessage, ClientEndMessage, ProtocolError, parse_client_message
 from .session import TranscriptionSession
 from .streaming_state import apply_decode_result, build_hypothesis_segments
@@ -29,7 +29,7 @@ SAMPLE_RATE = 16_000
 BYTES_PER_SAMPLE = 2
 BYTES_PER_SECOND = SAMPLE_RATE * BYTES_PER_SAMPLE
 AUDIO_INPUT_CONTRACT = "pcm_s16le/16000hz/mono"
-LIVE_INPUT_CHUNK_MS = 250
+LIVE_INPUT_CHUNK_MS = 200
 
 
 @dataclass(frozen=True)
@@ -52,6 +52,7 @@ class ServiceConfig:
     speech_vad_backend: str
     speech_vad_fallback: str
     strict_quality_mode: bool
+    latency_profile: str
     model_name: str
     cpu_threads: int
     num_workers: int
@@ -65,18 +66,19 @@ class ServiceConfig:
             client_idle_timeout_sec=_env_int("CLIENT_IDLE_TIMEOUT_SEC", 60, 5, 300),
             backpressure_queue_wait_ms=_env_int("BACKPRESSURE_QUEUE_WAIT_MS", 1000, 100, 10000),
             transcribe_timeout_sec=_env_int("TRANSCRIBE_TIMEOUT_SEC", 20, 1, 300),
-            vad_silence_ms=_env_int("VAD_SILENCE_MS", 700, 200, 5000),
+            vad_silence_ms=_env_int("VAD_SILENCE_MS", 450, 10, 5000),
             vad_energy_threshold=_env_float("VAD_ENERGY_THRESHOLD", 0.008, 0.0001, 1.0),
-            vad_min_speech_ms=_env_int("VAD_MIN_SPEECH_MS", 400, 100, 5000),
+            vad_min_speech_ms=_env_int("VAD_MIN_SPEECH_MS", 400, 10, 5000),
             vad_min_speech_ratio=_env_float("VAD_MIN_SPEECH_RATIO", 0.35, 0.05, 1.0),
             vad_dynamic_threshold_multiplier=_env_float("VAD_DYNAMIC_THRESHOLD_MULTIPLIER", 2.4, 1.0, 10.0),
-            stream_decode_interval_ms=_env_int("STREAM_DECODE_INTERVAL_MS", 650, 200, 10000),
+            stream_decode_interval_ms=_env_int("STREAM_DECODE_INTERVAL_MS", 400, 10, 10000),
             stream_decode_overlap_ms=_env_int("STREAM_DECODE_OVERLAP_MS", 800, 0, 5000),
             stream_max_active_window_ms=_env_int("STREAM_MAX_ACTIVE_WINDOW_MS", 6000, 1000, 30000),
-            stream_commit_agreement_passes=_env_int("STREAM_COMMIT_AGREEMENT_PASSES", 2, 1, 5),
+            stream_commit_agreement_passes=_env_int("STREAM_COMMIT_AGREEMENT_PASSES", 1, 1, 5),
             speech_vad_backend=os.getenv("SPEECH_VAD_BACKEND", "silero").strip().lower() or "silero",
             speech_vad_fallback=os.getenv("SPEECH_VAD_FALLBACK", "energy").strip().lower() or "energy",
             strict_quality_mode=_env_bool("STRICT_QUALITY_MODE", True),
+            latency_profile=_env_choice("SPEECH_LATENCY_PROFILE", "ultra", {"ultra", "balanced", "quality"}),
             model_name=os.getenv("MODEL", "small"),
             cpu_threads=_env_int("SPEECH_CPU_THREADS", 8, 1, 32),
             num_workers=_env_int("SPEECH_NUM_WORKERS", 1, 1, 8),
@@ -115,6 +117,14 @@ def _env_bool(name: str, default: bool) -> bool:
     if normalized in {"0", "false", "no", "off"}:
         return False
     return default
+
+
+def _env_choice(name: str, default: str, allowed: set[str]) -> str:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    normalized = raw.strip().lower()
+    return normalized if normalized in allowed else default
 
 
 def _json_log(event: str, **fields: Any) -> str:
@@ -327,14 +337,22 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-_asr_backend = FasterWhisperBackend(
-    logger=logger,
-    device=os.getenv("SPEECH_DEVICE", "cpu"),
-    compute_type=os.getenv("SPEECH_COMPUTE_TYPE", "int8"),
-    cpu_threads=config.cpu_threads,
-    num_workers=config.num_workers,
-    download_root=None,  # HF default: /root/.cache/huggingface (volume mount)
-    strict_quality_mode=config.strict_quality_mode,
+_asr_backend = MultiplexAsrBackend(
+    faster_whisper_backend=FasterWhisperBackend(
+        logger=logger,
+        device=os.getenv("SPEECH_DEVICE", "cpu"),
+        compute_type=os.getenv("SPEECH_COMPUTE_TYPE", "int8"),
+        cpu_threads=config.cpu_threads,
+        num_workers=config.num_workers,
+        download_root=None,  # HF default: /root/.cache/huggingface (volume mount)
+        strict_quality_mode=config.strict_quality_mode,
+    ),
+    vibevoice_backend=VibeVoiceBackend(
+        logger=logger,
+        device=os.getenv("SPEECH_DEVICE", "cpu"),
+        compute_type=os.getenv("SPEECH_COMPUTE_TYPE", "int8"),
+        download_root=None,
+    ),
 )
 _vad_classifier = SpeechChunkClassifier(
     logger=logger,
@@ -342,6 +360,10 @@ _vad_classifier = SpeechChunkClassifier(
     fallback_backend=config.speech_vad_fallback,
     sample_rate=SAMPLE_RATE,
 )
+
+
+def _active_backend_name(model_name: str) -> str:
+    return _asr_backend.backend_name(model_name)
 
 
 async def _ensure_background_model_load() -> None:
@@ -357,9 +379,9 @@ async def _ensure_background_model_load() -> None:
             return
 
         if not _asr_backend.runtime_available:
-            detail = "faster_whisper is not installed."
+            detail = f"{_active_backend_name(config.model_name)} runtime dependencies are not installed."
             await runtime.mark_model_failed(detail)
-            logger.warning(_json_log("whisper_unavailable", reason=detail))
+            logger.warning(_json_log("speech_backend_unavailable", reason=detail, backend=_active_backend_name(config.model_name)))
             return
 
         await runtime.mark_model_loading()
@@ -368,21 +390,22 @@ async def _ensure_background_model_load() -> None:
 
 
 async def _load_default_model_background() -> None:
+    backend_name = _active_backend_name(config.model_name)
     try:
-        logger.info(_json_log("whisper_load_start", model=config.model_name, backend="faster_whisper"))
+        logger.info(_json_log("speech_model_load_start", model=config.model_name, backend=backend_name))
         await _asr_backend.load_model(config.model_name)
-        logger.info(_json_log("whisper_load_complete", model=config.model_name, backend="faster_whisper"))
+        logger.info(_json_log("speech_model_load_complete", model=config.model_name, backend=backend_name))
         await runtime.mark_model_loaded(_asr_backend.is_model_ready(config.model_name))
     except asyncio.CancelledError:
-        logger.info(_json_log("whisper_load_cancelled", model=config.model_name, backend="faster_whisper"))
+        logger.info(_json_log("speech_model_load_cancelled", model=config.model_name, backend=backend_name))
         raise
     except TranscriptionError as exc:
         await runtime.mark_model_failed(exc.detail)
-        logger.error(_json_log("whisper_load_failed", model=config.model_name, backend="faster_whisper", error=exc.detail))
+        logger.error(_json_log("speech_model_load_failed", model=config.model_name, backend=backend_name, error=exc.detail))
     except Exception as exc:
         detail = str(exc) or "Unexpected speech model startup error."
         await runtime.mark_model_failed(detail)
-        logger.exception(_json_log("whisper_load_failed", model=config.model_name, backend="faster_whisper", error=detail))
+        logger.exception(_json_log("speech_model_load_failed", model=config.model_name, backend=backend_name, error=detail))
     finally:
         current_task = asyncio.current_task()
         async with runtime._startup_lock:
@@ -394,6 +417,7 @@ async def _load_default_model_background() -> None:
                 "startup_complete",
                 startup_state=runtime.startup_state,
                 model=config.model_name,
+                asr_backend=backend_name,
                 whisper_ready=_asr_backend.is_model_ready(config.model_name),
                 compute_type=os.getenv("SPEECH_COMPUTE_TYPE", "int8"),
                 device=os.getenv("SPEECH_DEVICE", "cpu"),
@@ -438,6 +462,7 @@ async def health() -> dict[str, Any]:
         "status": "ok",
         "startupState": runtime.startup_state,
         "modelLoaded": runtime.model_loaded and _asr_backend.is_model_ready(config.model_name),
+        "asrBackend": _active_backend_name(config.model_name),
     }
 
 
@@ -451,6 +476,7 @@ async def health_ready() -> JSONResponse:
     body = {
         "status": "ok" if can_accept else ("not_ready" if not model_ready else "at_capacity"),
         "modelLoaded": model_ready,
+        "asrBackend": _active_backend_name(config.model_name),
         "failureReason": runtime.model_failure_reason or ("model_loading" if model_loading else None),
         "failureDetail": runtime.model_failure_detail,
         "startupState": runtime.startup_state,
@@ -481,11 +507,20 @@ async def health_diagnostics() -> JSONResponse:
 
     body = {
         "model": config.model_name,
+        "asr_backend": _active_backend_name(config.model_name),
         "model_ready": model_ready,
         "model_loading": model_loading,
         "startup_state": runtime.startup_state,
         "startup_task_started_at": runtime.startup_task_started_at,
         "model_ready_at": runtime.model_ready_at,
+        "latency_profile": config.latency_profile,
+        "beam_size": _env_int("SPEECH_BEAM_SIZE", 1, 1, 10),
+        "best_of": _env_int("SPEECH_BEST_OF", 1, 1, 10),
+        "client_chunk_ms": LIVE_INPUT_CHUNK_MS,
+        "stream_decode_interval_ms": config.stream_decode_interval_ms,
+        "stream_commit_agreement_passes": config.stream_commit_agreement_passes,
+        "vad_min_speech_ms": config.vad_min_speech_ms,
+        "vad_silence_ms": config.vad_silence_ms,
         "compute_type": os.getenv("SPEECH_COMPUTE_TYPE", "int8"),
         "device": os.getenv("SPEECH_DEVICE", "cpu"),
         "failure_reason": runtime.model_failure_reason or ("model_loading" if model_loading else None),
@@ -923,7 +958,7 @@ async def _receiver_loop(websocket: WebSocket, session: TranscriptionSession) ->
                     model=session.model,
                     task=session.task,
                     use_vad=session.use_vad,
-                    backend="faster_whisper",
+                    backend=_active_backend_name(session.model),
                     vad_backend=config.speech_vad_backend,
                     vad_fallback=config.speech_vad_fallback,
                     vad_active_backend=_vad_classifier.active_backend,
