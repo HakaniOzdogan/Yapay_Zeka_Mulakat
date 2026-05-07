@@ -120,10 +120,10 @@ export interface SpeechDiagnostics {
 }
 
 const TARGET_SAMPLE_RATE = 16000
-const CHUNK_MS = 1000
+const CHUNK_MS = 200
 const CHUNK_SAMPLES = (TARGET_SAMPLE_RATE * CHUNK_MS) / 1000
 const WS_MAX_BUFFERED_AMOUNT = 1_000_000
-const WS_MAX_QUEUE = 24
+const WS_MAX_QUEUE = 48
 const RECONNECT_DELAYS_MS = [1000, 2000, 4000]
 const DIAGNOSTICS_POLL_MS = 5000
 
@@ -376,7 +376,7 @@ async function createAudioPipeline(
   const highShelf = audioContext.createBiquadFilter()
   highShelf.type = 'highshelf'
   highShelf.frequency.value = 3000 // Boost speech presence/treble
-  highShelf.gain.value = 10 // +10dB to fix muffled audio
+  highShelf.gain.value = 3 // +3dB gentle speech clarity boost (was 10dB — too aggressive)
 
   source.connect(highPass)
   highPass.connect(highShelf)
