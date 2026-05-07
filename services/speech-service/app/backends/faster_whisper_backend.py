@@ -39,7 +39,7 @@ class FasterWhisperBackend(BaseAsrBackend):
         self._strict_quality_mode = strict_quality_mode
         self._beam_size = _env_int("SPEECH_BEAM_SIZE", 1, 1, 10)
         self._best_of = _env_int("SPEECH_BEST_OF", 1, 1, 10)
-        self._no_speech_threshold = _env_float("SPEECH_NO_SPEECH_THRESHOLD", 0.6, 0.0, 1.0)
+        self._no_speech_threshold = _env_float("SPEECH_NO_SPEECH_THRESHOLD", 0.4, 0.0, 1.0)
         self._models: dict[str, Any] = {}
         self._locks: dict[str, asyncio.Lock] = {}
 
@@ -286,7 +286,7 @@ def _warmup_model(model: Any) -> None:
         wav_buffer,
         language="en",
         task="transcribe",
-        beam_size=5,
+        beam_size=1,
         vad_filter=False,
         condition_on_previous_text=False,
     )
