@@ -301,12 +301,27 @@ builder.Services.AddScoped<ILlmAnalysisService, OpenAiLlmAnalysisService>();
 builder.Services.AddHostedService<BatchCoachingWorker>();
 builder.Services.AddScoped<IJwtTokenService, JwtTokenService>();
 builder.Services.AddScoped<IPasswordHasher<User>, PasswordHasher<User>>();
-builder.Services.AddHttpClient<ILlmClient, OpenAiResponsesClient>((sp, client) =>
+// Register LLM client based on configured Provider (Anthropic or OpenAI-compat)
+var llmProvider = (builder.Configuration["Llm:Provider"] ?? "Anthropic").Trim();
+if (string.Equals(llmProvider, "Anthropic", StringComparison.OrdinalIgnoreCase))
 {
-    var llm = sp.GetRequiredService<IOptions<LlmOptions>>().Value;
-    client.BaseAddress = new Uri(llm.BaseUrl.TrimEnd('/'));
-    client.Timeout = TimeSpan.FromSeconds(llm.TimeoutSeconds > 0 ? llm.TimeoutSeconds : 120);
-});
+    builder.Services.AddHttpClient<ILlmClient, AnthropicClient>((sp, client) =>
+    {
+        var llm = sp.GetRequiredService<IOptions<LlmOptions>>().Value;
+        client.BaseAddress = new Uri(llm.BaseUrl.TrimEnd('/'));
+        client.Timeout = TimeSpan.FromSeconds(llm.TimeoutSeconds > 0 ? llm.TimeoutSeconds : 120);
+    });
+}
+else
+{
+    // OpenAI-compat format (works with Ollama, OpenAI, and compatible proxies)
+    builder.Services.AddHttpClient<ILlmClient, OpenAiResponsesClient>((sp, client) =>
+    {
+        var llm = sp.GetRequiredService<IOptions<LlmOptions>>().Value;
+        client.BaseAddress = new Uri(llm.BaseUrl.TrimEnd('/'));
+        client.Timeout = TimeSpan.FromSeconds(llm.TimeoutSeconds > 0 ? llm.TimeoutSeconds : 120);
+    });
+}
 
 var connectionString = builder.Configuration.GetConnectionString("Default");
 builder.Services.AddDbContext<ApplicationDbContext>(options =>

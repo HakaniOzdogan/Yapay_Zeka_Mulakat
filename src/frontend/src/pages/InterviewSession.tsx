@@ -31,8 +31,6 @@ import {
 import { Calibration, HeadPose, PoseLandmarks, VisionMetrics } from '../vision/types'
 import { VideoCanvas } from '../components/VideoCanvas'
 import { LiveHints } from '../components/LiveHints'
-import { TranscriptModal } from '../components/TranscriptModal'
-import { LiveTranscript } from '../components/LiveTranscript'
 import '../styles/pages.css'
 
 const VISION_DEBUG_OVERLAY = true

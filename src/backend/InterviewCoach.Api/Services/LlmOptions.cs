@@ -4,11 +4,11 @@ namespace InterviewCoach.Api.Services;
 
 public class LlmOptions
 {
-    public string Provider { get; set; } = "OpenAI";
+    public string Provider { get; set; } = "Anthropic";
     public string ApiKey { get; set; } = string.Empty;
-    public string BaseUrl { get; set; } = "https://api.openai.com/v1";
-    public string PrimaryModel { get; set; } = "gpt-5.4";
-    public string LiveAnalysisModel { get; set; } = "gpt-5.4-mini";
+    public string BaseUrl { get; set; } = "https://api.anthropic.com";
+    public string PrimaryModel { get; set; } = "claude-sonnet-4-6";
+    public string LiveAnalysisModel { get; set; } = "claude-sonnet-4-6";
     public string ReasoningEffort { get; set; } = "high";
     public List<string> FallbackModels { get; set; } = [];
     public int TimeoutSeconds { get; set; } = 120;
@@ -20,7 +20,7 @@ public class LlmOptions
     // Compatibility shim for older code/tests that still reference "Model".
     public string Model
     {
-        get => string.IsNullOrWhiteSpace(PrimaryModel) ? "gpt-5.4" : PrimaryModel;
+        get => string.IsNullOrWhiteSpace(PrimaryModel) ? "claude-sonnet-4-6" : PrimaryModel;
         set => PrimaryModel = value;
     }
 }
@@ -52,14 +52,17 @@ public sealed class LlmOptionsValidator : IValidateOptions<LlmOptions>
         var failures = new List<string>();
         var provider = (options.Provider ?? string.Empty).Trim();
 
-        if (!string.Equals(provider, "OpenAI", StringComparison.OrdinalIgnoreCase))
+        var validProviders = new[] { "Anthropic", "OpenAI", "Ollama" };
+        if (!validProviders.Any(p => string.Equals(provider, p, StringComparison.OrdinalIgnoreCase)))
         {
-            failures.Add("Llm:Provider must be 'OpenAI' in this build.");
+            failures.Add($"Llm:Provider must be one of: {string.Join(", ", validProviders)}.");
         }
 
-        if (string.IsNullOrWhiteSpace(options.ApiKey))
+        // API key is required for cloud providers (Anthropic, OpenAI)
+        if (!string.Equals(provider, "Ollama", StringComparison.OrdinalIgnoreCase) &&
+            string.IsNullOrWhiteSpace(options.ApiKey))
         {
-            failures.Add("Llm:ApiKey is required when Llm:Provider is OpenAI.");
+            failures.Add($"Llm:ApiKey is required when Llm:Provider is {provider}.");
         }
 
         if (string.IsNullOrWhiteSpace(options.PrimaryModel))
