@@ -445,24 +445,39 @@ function Report() {
   ]
 
   const overall = scoreCard.overallScore ?? scoreCard.overall ?? 0
+  const transcriptText = report.transcript?.full_text || report.session?.transcript?.full_text || (typeof report.session?.transcript === 'string' ? report.session.transcript : null)
+  const sessionDate = session?.createdAt ? new Date(session.createdAt).toLocaleDateString('tr-TR', { day: '2-digit', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : null
+  const sessionRole = session?.selectedRole ?? session?.role ?? 'Belirtilmedi'
+  const sessionLang = session?.language === 'en' ? 'İngilizce' : 'Türkçe'
+  const questionCount = questions.length
 
   return (
     <div className="page report-page" data-testid="report-page">
       <div className="report-shell">
-        <div className="report-header">
-          <div>
-            <span className="eyebrow">Mulakat Analizi</span>
-            <h1>Interview Report</h1>
-            <p className="report-subtitle">
-              {session?.selectedRole || session?.role
-                ? `Role: ${session?.selectedRole ?? session?.role}`
-                : 'Interview Analysis'}
-            </p>
+
+        {/* ── PROFESSIONAL REPORT HEADER ── */}
+        <div className="report-hero-header">
+          <div className="report-hero-left">
+            <span className="eyebrow">Mülakat Raporu</span>
+            <h1 className="report-hero-title">Interview Performance Report</h1>
+            <div className="report-hero-meta">
+              <span className="report-meta-chip">🎯 {sessionRole}</span>
+              <span className="report-meta-chip">🌐 {sessionLang}</span>
+              <span className="report-meta-chip">❓ {questionCount} Soru</span>
+              {sessionDate && <span className="report-meta-chip">📅 {sessionDate}</span>}
+            </div>
           </div>
-          <div className="summary-card glass-card" style={{ padding: 24, borderRadius: 28, minWidth: 260 }}>
-            <h3 style={{ marginBottom: 8 }}>Session</h3>
-            <p style={{ marginBottom: 8 }}>{sessionId}</p>
-            <p style={{ margin: 0 }}>Skor, feedback ve AI coaching tek raporda toplandi.</p>
+          <div className="report-hero-score">
+            <div className="report-hero-score-ring" style={{ '--score-deg': `${(overall / 100) * 360}deg`, '--score-color': getScoreColor(overall) } as any}>
+              <div className="report-hero-score-inner">
+                <span className="report-hero-score-val">{overall}</span>
+                <span className="report-hero-score-lbl">/ 100</span>
+              </div>
+            </div>
+            <div className="report-hero-grade" style={{ color: getScoreColor(overall) }}>Grade {getScoreGrade(overall)}</div>
+            <div className="report-hero-verdict">
+              {overall >= 80 ? '🏆 Mükemmel Performans' : overall >= 60 ? '👍 Gelişime Açık Güçlü Taban' : '📈 Hedefli Pratikle İlerlenebilir'}
+            </div>
           </div>
         </div>
 
@@ -506,38 +521,53 @@ function Report() {
         </div>
 
         <div className="feedback-section question-audio-section" data-testid="question-audio-section">
-          <h2>Sorular ve Ses Kayitlari</h2>
+          <h2>🎙️ Görüşme Kayıtları ve Deşifre</h2>
+
           {questions.length > 0 ? (
             <div className="question-audio-list">
               {questions.map((question) => {
                 const audioSrc = resolveAudioUrl(question.audioUrl)
-
                 return (
-                  <div key={question.id || question.order} className="question-audio-card" data-testid={`question-audio-card-${question.order}`}>
-                    <div className="question-audio-meta">Soru {question.order}</div>
-                    <div className="question-audio-prompt">{question.prompt}</div>
-                    {audioSrc ? (
-                      <audio
-                        className="question-audio-player"
-                        controls
-                        preload="metadata"
-                        src={audioSrc}
-                        data-testid={`question-audio-player-${question.order}`}
-                      >
-                        Audio playback is not supported by this browser.
-                      </audio>
-                    ) : (
-                      <div className="question-audio-empty" data-testid={`question-audio-empty-${question.order}`}>
-                        Ses kaydi yok.
+                  <div key={question.id || question.order} className="interview-qa-card" data-testid={`question-audio-card-${question.order}`}>
+                    <div className="interview-qa-header">
+                      <span className="interview-qa-num">Soru {question.order}</span>
+                    </div>
+                    <div className="interview-qa-prompt">{question.prompt}</div>
+                    <div className="interview-qa-body">
+                      <div className="interview-qa-video">
+                        {audioSrc ? (
+                          <video
+                            controls
+                            preload="metadata"
+                            src={audioSrc}
+                            style={{ width: '100%', borderRadius: 12, backgroundColor: '#000', maxHeight: 320 }}
+                            data-testid={`question-audio-player-${question.order}`}
+                          >
+                            Tarayıcınız video oynatmayı desteklemiyor.
+                          </video>
+                        ) : (
+                          <div className="interview-qa-no-video" data-testid={`question-audio-empty-${question.order}`}>
+                            <span>📹</span>
+                            <p>Kayıt bulunamadı</p>
+                          </div>
+                        )}
                       </div>
-                    )}
+                    </div>
                   </div>
                 )
               })}
             </div>
           ) : (
-            <div className="no-feedback">
-              <p>Soru kaydi bulunamadi.</p>
+            <div className="no-feedback"><p>Soru kaydı bulunamadı.</p></div>
+          )}
+
+          {transcriptText && (
+            <div className="interview-full-transcript">
+              <div className="interview-full-transcript-header">
+                <span>📄</span>
+                <h3>Tam Görüşme Deşifresi</h3>
+              </div>
+              <div className="interview-full-transcript-body">{transcriptText}</div>
             </div>
           )}
         </div>

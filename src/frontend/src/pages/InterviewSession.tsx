@@ -461,24 +461,18 @@ function InterviewSession() {
       mediaStreamRef.current = stream
       setVideoStream(stream)
 
-      // Setup audio recording (best-effort; don't block live video if recorder fails)
-      audioChunksRef.current = []
-      mediaRecorderRef.current = null
-      recordingMimeTypeRef.current = 'audio/webm'
       try {
-        const audioTracks = stream.getAudioTracks()
-        if (audioTracks.length > 0 && typeof MediaRecorder !== 'undefined') {
-          const audioOnlyStream = new MediaStream(audioTracks)
+        if (typeof MediaRecorder !== 'undefined') {
           const mimeCandidates = [
-            'audio/webm;codecs=opus',
-            'audio/webm',
-            'audio/ogg;codecs=opus'
+            'video/webm;codecs=vp8,opus',
+            'video/webm',
+            'video/mp4'
           ]
           const supportedMimeType = mimeCandidates.find(type => MediaRecorder.isTypeSupported(type))
           mediaRecorderRef.current = supportedMimeType
-            ? new MediaRecorder(audioOnlyStream, { mimeType: supportedMimeType })
-            : new MediaRecorder(audioOnlyStream)
-          recordingMimeTypeRef.current = mediaRecorderRef.current.mimeType || supportedMimeType || 'audio/webm'
+            ? new MediaRecorder(stream, { mimeType: supportedMimeType })
+            : new MediaRecorder(stream)
+          recordingMimeTypeRef.current = mediaRecorderRef.current.mimeType || supportedMimeType || 'video/webm'
 
           mediaRecorderRef.current.ondataavailable = (e) => {
             if (e.data.size > 0) {
@@ -487,7 +481,7 @@ function InterviewSession() {
           }
           mediaRecorderRef.current.start(1000)
         } else {
-          console.warn('Audio track or MediaRecorder unavailable; continuing with live metrics only.')
+          console.warn('MediaRecorder unavailable; continuing with live metrics only.')
         }
       } catch (recorderError) {
         console.warn('MediaRecorder init failed; continuing with live metrics only:', recorderError)
@@ -965,9 +959,6 @@ function InterviewSession() {
         })
       }
 
-      if (showModal) {
-        setShowTranscript(true)
-      }
       return true
     } catch (error) {
       console.error('Transcription failed:', error)
@@ -1298,198 +1289,7 @@ function InterviewSession() {
             </div>
 
             <section className="transcript-shell">
-              <aside className="live-transcript-panel">
-                <div className="live-transcript-header">
-                  Transcript updates
-                  <span className={`asr-status-badge status-${asrStatus}`}>
-                    {asrStatusLabel}
-                  </span>
-                </div>
-                <div className="live-transcript-body">
-                  {speechReadyMessage && !asrError && (
-                    <div className="live-transcript-notice">
-                      {speechReadyMessage}
-                    </div>
-                  )}
-                  {asrNotice && !asrError && asrNotice !== speechReadyMessage && (
-                    <div className="live-transcript-notice">
-                      {asrNotice}
-                    </div>
-                  )}
-                  {transcriptGuidance && !asrError && (
-                    <div className="live-transcript-notice">
-                      {transcriptGuidance}
-                    </div>
-                  )}
-                  {sileroFallbackWarning && !asrError && (
-                    <div className="live-transcript-notice">
-                      {sileroFallbackWarning}
-                    </div>
-                  )}
-                  {asrError && (
-                    <div className="live-transcript-empty">
-                      {asrError}
-                    </div>
-                  )}
-                  {!asrError && liveTranscriptLines.length === 0 && !liveTranscriptInterim && (
-                    <div className="live-transcript-empty">
-                      Speak naturally. Finalized transcript lines appear after short pauses.
-                    </div>
-                  )}
-                  {(liveTranscriptLines.length > 0 || liveTranscriptInterim) && (
-                    <LiveTranscript
-                      finalSegments={liveTranscriptLines}
-                      partialText={liveTranscriptInterim}
-                      isConnected={asrStatus === 'connected'}
-                    />
-                  )}
-                  {(isRecording || speechReadyMessage || lastPartialAt || lastFinalAt) && (
-                    <div className="live-transcript-diagnostics">
-                      <div className="transcript-diag-section">
-                        <div className="transcript-diag-title">Bağlantı Durumu</div>
-                        <div className="transcript-diag-row">
-                          <span className={`diag-dot ${asrStatus === 'connected' ? 'dot-green' : asrStatus === 'error' ? 'dot-red' : 'dot-yellow'}`} />
-                          <span>WebSocket: {asrStatusLabel}</span>
-                        </div>
-                        <div className="transcript-diag-row">
-                          <span className={`diag-dot ${speechReady ? 'dot-green' : speechReady === false ? 'dot-red' : 'dot-yellow'}`} />
-                          <span>Model: {speechModelLabel}</span>
-                        </div>
-                        <div className="transcript-diag-row">
-                          <span>Ses akışı: {audioActivityLabel}</span>
-                        </div>
-                      </div>
 
-                      {speechDiagnostics && (
-                        <div className="transcript-diag-section">
-                          <div className="transcript-diag-title">Sistem Bilgisi</div>
-                          <div className="transcript-diag-grid">
-                            <div className="diag-stat">
-                              <span className="diag-stat-value">{speechDiagnostics.model}</span>
-                              <span className="diag-stat-label">Model</span>
-                            </div>
-                            <div className="diag-stat">
-                              <span className="diag-stat-value">{speechDiagnostics.compute_type}</span>
-                              <span className="diag-stat-label">Compute</span>
-                            </div>
-                            <div className="diag-stat">
-                              <span className="diag-stat-value">{speechDiagnostics.device}</span>
-                              <span className="diag-stat-label">Cihaz</span>
-                            </div>
-                            <div className="diag-stat">
-                              <span className="diag-stat-value">{speechDiagnostics.vad_backend}</span>
-                              <span className="diag-stat-label">VAD</span>
-                            </div>
-                            <div className="diag-stat">
-                              <span className="diag-stat-value">{speechDiagnostics.strict_quality_mode ? 'Strict' : 'Relaxed'}</span>
-                              <span className="diag-stat-label">Kalite modu</span>
-                            </div>
-                            <div className="diag-stat">
-                              <span className="diag-stat-value">{speechDiagnostics.silero_available ? 'Active' : 'Fallback'}</span>
-                              <span className="diag-stat-label">Silero</span>
-                            </div>
-                            <div className="diag-stat">
-                              <span className="diag-stat-value">{speechDiagnostics.audio_input_contract || '—'}</span>
-                              <span className="diag-stat-label">Ses kontrati</span>
-                            </div>
-                            <div className="diag-stat">
-                              <span className="diag-stat-value">
-                                {speechDiagnostics.live_input_sample_rate > 0
-                                  ? `${speechDiagnostics.live_input_sample_rate} Hz / ${speechDiagnostics.live_input_channels} ch`
-                                  : '—'}
-                              </span>
-                              <span className="diag-stat-label">Canli format</span>
-                            </div>
-                          </div>
-                        </div>
-                      )}
-
-                      {speechDiagnostics && (
-                        <div className="transcript-diag-section">
-                          <div className="transcript-diag-title">Performans</div>
-                          <div className="transcript-diag-grid">
-                            <div className="diag-stat">
-                              <span className="diag-stat-value">{speechDiagnostics.avg_transcribe_latency_ms > 0 ? `${Math.round(speechDiagnostics.avg_transcribe_latency_ms)}ms` : '—'}</span>
-                              <span className="diag-stat-label">Ort. Gecikme</span>
-                            </div>
-                            <div className="diag-stat">
-                              <span className="diag-stat-value">{speechDiagnostics.p95_transcribe_latency_ms > 0 ? `${Math.round(speechDiagnostics.p95_transcribe_latency_ms)}ms` : '—'}</span>
-                              <span className="diag-stat-label">P95 Gecikme</span>
-                            </div>
-                            <div className="diag-stat">
-                              <span className="diag-stat-value">{speechDiagnostics.client_finals_received}</span>
-                              <span className="diag-stat-label">Final</span>
-                            </div>
-                            <div className="diag-stat">
-                              <span className="diag-stat-value">{speechDiagnostics.client_partials_received}</span>
-                              <span className="diag-stat-label">Partial</span>
-                            </div>
-                            <div className="diag-stat">
-                              <span className="diag-stat-value">
-                                {vadChunkTotal > 0 && vadVoicedRatio !== null && vadRejectedRatio !== null
-                                  ? `${vadVoicedRatio}% / ${vadRejectedRatio}%`
-                                  : '-'}
-                              </span>
-                              <span className="diag-stat-label">Voiced / Rejected</span>
-                            </div>
-                            <div className="diag-stat">
-                              <span className="diag-stat-value">{speechDiagnostics.filtered_decode_results_total}</span>
-                              <span className="diag-stat-label">Filtered decodes</span>
-                            </div>
-                            <div className="diag-stat">
-                              <span className="diag-stat-value">{speechDiagnostics.empty_decode_results_total}</span>
-                              <span className="diag-stat-label">Empty decodes</span>
-                            </div>
-                            <div className="diag-stat">
-                              <span className="diag-stat-value">{speechDiagnostics.duplicate_finals_suppressed_total}</span>
-                              <span className="diag-stat-label">Suppressed dupes</span>
-                            </div>
-                            <div className="diag-stat">
-                              <span className="diag-stat-value">{uploadFormatLabel}</span>
-                              <span className="diag-stat-label">Son upload</span>
-                            </div>
-                            <div className="diag-stat">
-                              <span className="diag-stat-value">{uploadSampleLabel}</span>
-                              <span className="diag-stat-label">Upload format</span>
-                            </div>
-                          </div>
-                        </div>
-                      )}
-
-                      <div className="transcript-diag-section">
-                        <div className="transcript-diag-title">Zaman Çizelgesi</div>
-                        <div className="transcript-diag-row">
-                          <span>Son partial: {lastPartialLabel}</span>
-                        </div>
-                        <div className="transcript-diag-row">
-                          <span>Son final: {lastFinalLabel}</span>
-                        </div>
-                      </div>
-
-                      {speechIssueDetail && (
-                        <div className="diag-error-banner">
-                          <div className="diag-error-title">⚠ Sorun Tespit Edildi</div>
-                          <div className="diag-error-detail">
-                            {!speechReadyMessage || speechReadyMessage.includes('ulasilamiyor')
-                              ? 'Speech servisi konteynerine erişilemiyor. Docker servisleri çalışıyor mu kontrol edin.'
-                              : speechReadyMessage.includes('yukleniyor') || speechReadyMessage.includes('isiniyor')
-                                ? 'Model ilk defa yükleniyor veya ısınıyor. Bu işlem 1-2 dakika sürebilir.'
-                                : speechReadyMessage.includes('dolu')
-                                  ? 'Tüm oturum slotları dolu. Başka bir tarayıcı sekmesinde açık mülakat varsa kapatın.'
-                                  : speechReadyMessage || 'Bilinmeyen hata. Logları kontrol edin.'}
-                          </div>
-                        </div>
-                      )}
-
-                      {isRecording && asrStatus === 'connected' && audioActivityState === 'capturing' && !lastPartialAt && (
-                        <div className="diag-info-banner">
-                          Mikrofon aktif. Ses alınıyor ancak henüz konuşma algılanmadı. Daha net ve yüksek sesle konuşmayı deneyin.
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </aside>
 
               <div>
                 <div className="controls">
@@ -1574,24 +1374,7 @@ function InterviewSession() {
         </div>
       </div>
 
-      <TranscriptModal
-        isOpen={showTranscript}
-        transcript={transcriptData?.full_text || ''}
-        segments={transcriptData?.segments || []}
-        stats={transcriptData ? {
-          duration_ms: transcriptData.duration_ms,
-          word_count: transcriptData.word_count,
-          wpm: transcriptData.wpm,
-          filler_count: transcriptData.filler_count,
-          filler_words: transcriptData.filler_words,
-          pause_count: transcriptData.pause_count,
-          average_pause_ms: transcriptData.average_pause_ms
-        } : null}
-        onClose={() => {
-          setShowTranscript(false)
-          proceedToNext()
-        }}
-      />
+
     </div>
   )
 }
