@@ -33,8 +33,8 @@ import { VideoCanvas } from '../components/VideoCanvas'
 import { LiveHints } from '../components/LiveHints'
 import '../styles/pages.css'
 
-const VISION_DEBUG_OVERLAY = true
-const DEBUG_TRANSPORT = true
+const VISION_DEBUG_OVERLAY = import.meta.env.DEV
+const DEBUG_TRANSPORT = import.meta.env.DEV
 const CALIBRATION_DURATION_MS = 5000
 const VISION_EVENT_INTERVAL_MS = 500
 const ROLLING_SECONDS = 5
@@ -503,7 +503,6 @@ function InterviewSession() {
       }
       setIsRecording(true)
       isRecordingRef.current = true
-      await startStreamingAsr(stream)
       if (liveAnalysisIntervalRef.current) {
         clearInterval(liveAnalysisIntervalRef.current)
       }
@@ -1066,10 +1065,19 @@ function InterviewSession() {
     if (!sessionId) return
     try {
       await ApiService.finalizeSession(sessionId)
-      navigate(`/report/${sessionId}`)
     } catch (error) {
-      console.error('Failed to finalize:', error)
+      console.error('Finalize failed, navigating to report anyway:', error)
     }
+    navigate(`/report/${sessionId}`)
+  }
+
+  const handleAbortClick = () => {
+    const confirmed = window.confirm(
+      'Mülakatı durdurmak istediğinizden emin misiniz? Kaydedilmemiş ilerlemeniz kaybolacak.'
+    )
+    if (!confirmed) return
+    void stopRecording()
+    navigate('/')
   }
 
   if (loading) return <div className="page"><p>Loading...</p></div>
@@ -1137,20 +1145,21 @@ function InterviewSession() {
     if (speechReady === false) return 'Transcript beklemede'
     return 'Mikrofon hazirlaniyor'
   })()
-  const transcriptGuidance = (() => {
-    if (!isRecording) return null
-    if (speechReady === false) return null
-    if (asrStatus === 'connected' && audioActivityState === 'awaiting-final') {
-      return 'Ses aliniyor. Final satirlar kisa bir duraksamadan sonra gorunur.'
-    }
-    if (asrStatus === 'connected' && audioActivityState === 'capturing') {
-      return 'Mikrofon canli. Normal sekilde konusun; kisa duraksamalar final transcript satirlarini hizlandirir.'
-    }
-    return null
-  })()
 
   return (
     <div className="page interview-page session-page">
+      <div className="interview-topbar">
+        <span className="interview-topbar-logo" onClick={handleAbortClick}>
+          Interview AI
+        </span>
+        <button
+          type="button"
+          className="btn btn-sm btn-danger"
+          onClick={handleAbortClick}
+        >
+          ✕ Mülakatı Durdur
+        </button>
+      </div>
       <div className="session-shell">
         <div className="session-header">
           <div>
@@ -1222,7 +1231,7 @@ function InterviewSession() {
 
           <div className="video-column">
             <div className="video-stage-wrap">
-              <div className="video-chip">{videoChipLabel}</div>
+              <div className="video-chip">Kayıt aktif</div>
               <div className="video-badge">AI</div>
               <div className="video-stage">
                 <div className="mechanical-clock" title={clockNow.toLocaleTimeString('tr-TR')}>
@@ -1286,87 +1295,107 @@ function InterviewSession() {
               </div>
             </div>
 
-            <section className="transcript-shell">
-
-
-              <div>
-                <div className="controls">
-                  <button
-                    onClick={isRecording ? stopRecording : startRecording}
-                    className={`btn ${isRecording ? 'btn-danger' : 'btn-primary'}`}
-                  >
-                    {isRecording ? 'Kaydi Durdur' : 'Start Recording'}
-                  </button>
+            <div className="system-status-panel">
+              <div className="status-controls">
+                <button
+                  onClick={isRecording ? stopRecording : startRecording}
+                  className={`btn ${isRecording ? 'btn-danger' : 'btn-primary'}`}
+                >
+                  {isRecording ? 'Kaydı Durdur' : 'Kaydı Başlat'}
+                </button>
+                <div className="overlay-toggles">
                   <button
                     type="button"
                     onClick={() => setShowOverlay(v => !v)}
-                    className="btn btn-secondary"
+                    className="btn btn-secondary btn-sm"
                   >
-                    {showOverlay ? 'Overlay On' : 'Overlay Off'}
+                    {showOverlay ? 'Overlay Kapat' : 'Overlay Aç'}
                   </button>
+                  {showOverlay && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => setShowFaceOverlay(v => !v)}
+                        className="btn btn-secondary btn-sm"
+                      >
+                        {showFaceOverlay ? 'Yüz ✓' : 'Yüz'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setShowPoseOverlay(v => !v)}
+                        className="btn btn-secondary btn-sm"
+                      >
+                        {showPoseOverlay ? 'Vücut ✓' : 'Vücut'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setShowDiagnosticsOverlay(v => !v)}
+                        className="btn btn-secondary btn-sm"
+                      >
+                        {showDiagnosticsOverlay ? 'İstatistik ✓' : 'İstatistik'}
+                      </button>
+                    </>
+                  )}
                 </div>
+              </div>
 
-                <div className="overlay-controls" style={{ marginTop: 12 }}>
-                  <button
-                    type="button"
-                    onClick={() => setShowFaceOverlay(v => !v)}
-                    className="btn btn-secondary btn-sm"
-                    disabled={!showOverlay}
-                  >
-                    {showFaceOverlay ? 'Face details on' : 'Face details off'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setShowPoseOverlay(v => !v)}
-                    className="btn btn-secondary btn-sm"
-                    disabled={!showOverlay}
-                  >
-                    {showPoseOverlay ? 'Body details on' : 'Body details off'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setShowDiagnosticsOverlay(v => !v)}
-                    className="btn btn-secondary btn-sm"
-                    disabled={!showOverlay}
-                  >
-                    {showDiagnosticsOverlay ? 'Live stats on' : 'Live stats off'}
-                  </button>
+              <div className="status-indicators">
+                <div className="status-row">
+                  <span className="status-label">Görüntü Analizi</span>
+                  <span className={`status-dot ${mediaReady ? 'dot-ok' : 'dot-loading'}`}>
+                    {mediaReady ? '● Aktif' : '◌ Yükleniyor'}
+                  </span>
                 </div>
-
-                {showOverlay && (
-                  <p className="overlay-info" style={{ marginTop: 14 }}>
-                    Overlay acik: yuz mesh, pose ve canli landmark tanilama gorunuyor.
-                  </p>
-                )}
-
-                {llmInsight && (
-                  <div className="llm-insight" style={{ marginTop: 18 }}>
-                    <div className="llm-insight-title">
-                      LLM Canli Analiz ({llmInsight.model}) - Guven: %{Math.round((llmInsight.confidence || 0) * 100)}
-                    </div>
-                    <div className="llm-insight-summary">{llmInsight.summary}</div>
-                    {llmInsight.risks?.length > 0 && (
-                      <div className="llm-insight-list">
-                        Riskler: {llmInsight.risks.join(' | ')}
-                      </div>
-                    )}
-                    {llmInsight.suggestions?.length > 0 && (
-                      <div className="llm-insight-list">
-                        Oneriler: {llmInsight.suggestions.join(' | ')}
-                      </div>
-                    )}
+                <div className="status-row">
+                  <span className="status-label">Ses Servisi</span>
+                  <span className={`status-dot ${speechReady ? 'dot-ok' : 'dot-warn'}`}>
+                    {speechReady ? '● Hazır' : '◌ Bekleniyor'}
+                  </span>
+                </div>
+                {speechDiagnostics?.model && (
+                  <div className="status-row">
+                    <span className="status-label">Model</span>
+                    <span className="status-value-sm">{speechDiagnostics.model}</span>
                   </div>
                 )}
+                {isRecording && (
+                  <>
+                    <div className="status-row">
+                      <span className="status-label">Göz Teması</span>
+                      <span className="status-value-sm">{eyeContactPercent}%</span>
+                    </div>
+                    <div className="status-row">
+                      <span className="status-label">Duruş</span>
+                      <span className="status-value-sm">{Math.round(currentMetrics.posture)}%</span>
+                    </div>
+                    <div className="status-row">
+                      <span className="status-label">Gönderim</span>
+                      <span className="status-value-sm">{transportStats.sent} batch</span>
+                    </div>
+                  </>
+                )}
               </div>
-            </section>
+
+              {llmInsight && (
+                <div className="llm-insight">
+                  <div className="llm-insight-title">
+                    AI Analiz — Güven: %{Math.round((llmInsight.confidence || 0) * 100)}
+                  </div>
+                  <div className="llm-insight-summary">{llmInsight.summary}</div>
+                  {llmInsight.risks?.length > 0 && (
+                    <div className="llm-insight-list">⚠ {llmInsight.risks.join(' · ')}</div>
+                  )}
+                  {llmInsight.suggestions?.length > 0 && (
+                    <div className="llm-insight-list">💡 {llmInsight.suggestions.join(' · ')}</div>
+                  )}
+                </div>
+              )}
+            </div>
 
             <div className="nav-buttons">
               <button onClick={handleNext} disabled={uploading} className="btn btn-primary">
                 {uploading ? 'Processing...' : currentQuestionIndex < questions.length - 1 ? 'Next Question' : 'Finish'}
               </button>
-              {backgroundTranscribes > 0 && (
-                <p className="subtitle" style={{ marginBottom: 0 }}>Onceki cevaplar arka planda isleniyor...</p>
-              )}
             </div>
           </div>
         </div>

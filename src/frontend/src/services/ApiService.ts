@@ -244,7 +244,8 @@ export interface SessionScoringProfileResponse {
 }
 
 export const apiHttpClient: AxiosInstance = axios.create({
-  baseURL: API_BASE_URL
+  baseURL: API_BASE_URL,
+  timeout: 30000
 })
 
 class ApiService {
@@ -401,6 +402,10 @@ class ApiService {
     return null
   }
 
+  extractCoachingFromReport(report: any): LlmCoachingResponse | null {
+    return this.getCoachingFromReportPayload(report)
+  }
+
   private getCoachingFromReportPayload(report: any): LlmCoachingResponse | null {
     const direct = this.tryParseCoachingPayload(report?.llmCoaching)
     if (direct) {
@@ -431,10 +436,11 @@ class ApiService {
   }
 
   // Session endpoints
-  async createSession(role: string, language: string) {
+  async createSession(role: string, language: string, difficulty?: string) {
     const response = await this.client.post('/sessions', {
       role,
-      language
+      language,
+      ...(difficulty ? { difficulty } : {})
     })
     return response.data
   }
@@ -495,7 +501,7 @@ class ApiService {
     try {
       const ext = mimeType.includes('ogg') ? 'ogg'
         : mimeType.includes('mpeg') ? 'mp3'
-        : mimeType.includes('mp4') ? 'm4a'
+        : mimeType.includes('mp4') ? 'mp4'
         : 'webm'
       const formData = new FormData()
       formData.append('file', audioBlob, `q${questionOrder}.${ext}`)
@@ -592,12 +598,6 @@ class ApiService {
   }
 
   async getLlmCoaching(sessionId: string): Promise<LlmCoachingResponse> {
-    const report = await this.getReport(sessionId)
-    const cachedFromReport = this.getCoachingFromReportPayload(report)
-    if (cachedFromReport) {
-      return cachedFromReport
-    }
-
     const response = await this.client.post(
       `/sessions/${sessionId}/llm/coach?force=false`
     )

@@ -6,6 +6,7 @@ import ApiService, {
   ScoringProfilesResponse
 } from '../services/ApiService'
 import { triggerBlobDownload } from '../utils/download'
+import { TranscriptModal } from '../components/TranscriptModal'
 import '../styles/pages.css'
 
 interface ScoreMetric {
@@ -65,6 +66,7 @@ function Report() {
   const [recalculatingLoading, setRecalculatingLoading] = useState(false)
   const [scoringMessage, setScoringMessage] = useState<string | null>(null)
   const [scoringError, setScoringError] = useState<string | null>(null)
+  const [isTranscriptOpen, setIsTranscriptOpen] = useState(false)
 
   useEffect(() => {
     void loadReport()
@@ -119,13 +121,14 @@ function Report() {
       const resolvedCurrentProfile = sessionData?.scoringProfile || 'default'
       setCurrentProfile(resolvedCurrentProfile)
 
-      await loadScoringProfiles(sessionData?.scoringProfile)
+      const cachedCoaching = ApiService.extractCoachingFromReport(reportData)
+      if (cachedCoaching) {
+        setLlmCoaching(cachedCoaching)
+      }
 
-      const coaching = await ApiService.getLlmCoaching(sessionId)
-      setLlmCoaching(coaching)
-      setLlmError(null)
+      await loadScoringProfiles(sessionData?.scoringProfile)
     } catch (error) {
-      setLlmError(parseLlmError(error))
+      console.error('Report load failed:', error)
       setReport(null)
     } finally {
       setLoading(false)
@@ -445,7 +448,19 @@ function Report() {
   ]
 
   const overall = scoreCard.overallScore ?? scoreCard.overall ?? 0
-  const transcriptText = report.transcript?.full_text || report.session?.transcript?.full_text || (typeof report.session?.transcript === 'string' ? report.session.transcript : null)
+
+  const transcriptSegments: Array<{ startMs: number; endMs: number; text: string }> =
+    Array.isArray(report.transcript) && report.transcript.length > 0
+      ? report.transcript
+      : Array.isArray(report.transcriptSegments)
+        ? report.transcriptSegments
+        : Array.isArray(report.session?.transcriptSegments)
+          ? report.session.transcriptSegments
+          : []
+
+  const transcriptText = transcriptSegments.length > 0
+    ? transcriptSegments.map((s) => s.text).join('\n')
+    : (report.transcript?.full_text ?? report.session?.transcript?.full_text ?? (typeof report.session?.transcript === 'string' ? report.session.transcript : null))
   const sessionDate = session?.createdAt ? new Date(session.createdAt).toLocaleDateString('tr-TR', { day: '2-digit', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : null
   const sessionRole = session?.selectedRole ?? session?.role ?? 'Belirtilmedi'
   const sessionLang = session?.language === 'en' ? 'İngilizce' : 'Türkçe'
@@ -561,15 +576,33 @@ function Report() {
             <div className="no-feedback"><p>Soru kaydı bulunamadı.</p></div>
           )}
 
-          {transcriptText && (
-            <div className="interview-full-transcript">
+          {(transcriptSegments.length > 0 || transcriptText) && (
+            <div className="interview-full-transcript interview-full-transcript--expanded">
               <div className="interview-full-transcript-header">
                 <span>📄</span>
-                <h3>Tam Görüşme Deşifresi</h3>
+                <h3>Görüşme Transkripti</h3>
               </div>
-              <div className="interview-full-transcript-body">{transcriptText}</div>
+              <div className="interview-full-transcript-body">
+                {transcriptSegments.length > 0
+                  ? transcriptSegments.map((seg, i) => (
+                      <div key={i} className="transcript-segment-row">
+                        <span className="transcript-timestamp">{formatMs(seg.startMs)}</span>
+                        <span className="transcript-text">{seg.text}</span>
+                      </div>
+                    ))
+                  : transcriptText
+                }
+              </div>
             </div>
           )}
+
+          <TranscriptModal
+            isOpen={isTranscriptOpen}
+            onClose={() => setIsTranscriptOpen(false)}
+            transcript={transcriptText || ''}
+            segments={transcriptSegments}
+            questionCount={questionCount}
+          />
         </div>
 
         <div className="ai-coach-section" data-testid="ai-coach-section">
@@ -824,7 +857,10 @@ function Report() {
 
         <div className="report-actions" data-testid="report-actions">
           <button onClick={() => navigate('/')} className="btn btn-primary">
-            Start New Interview
+            Yeni Mülakat Başlat
+          </button>
+          <button onClick={() => navigate('/reports')} className="btn btn-secondary">
+            Tüm Raporlar
           </button>
           <button
             onClick={exportJson}

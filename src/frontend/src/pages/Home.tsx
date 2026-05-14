@@ -7,25 +7,32 @@ function Home() {
   const navigate = useNavigate()
   const [selectedRole, setSelectedRole] = useState('Software Engineer')
   const [selectedLanguage, setSelectedLanguage] = useState('tr')
+  const [selectedDifficulty, setSelectedDifficulty] = useState<'easy' | 'medium' | 'hard'>('medium')
   const [selectedMode, setSelectedMode] = useState<'realtime' | 'offline'>('realtime')
   const [loading, setLoading] = useState(false)
 
   const roles = [
-    'Software Engineer', 
-    'Product Manager', 
-    'Data Scientist', 
+    'Software Engineer',
+    'Product Manager',
+    'Data Scientist',
     'UX Designer'
   ]
-  
+
   const languages = [
     { code: 'tr', label: 'Türkçe' },
     { code: 'en', label: 'English' }
   ]
 
+  const difficulties = [
+    { value: 'easy', label: 'Kolay' },
+    { value: 'medium', label: 'Orta' },
+    { value: 'hard', label: 'Zor' }
+  ] as const
+
   const handleStart = async () => {
     setLoading(true)
     try {
-      const session = await ApiService.createSession(selectedRole, selectedLanguage)
+      const session = await ApiService.createSession(selectedRole, selectedLanguage, selectedDifficulty)
       const createdSessionId = session?.id || session?.sessionId
 
       if (!createdSessionId) {
@@ -39,7 +46,7 @@ function Home() {
       }
     } catch (error) {
       console.error('Failed to create session:', error)
-      alert('Failed to connect to the Lumina Interview System. Please verify the environment.')
+      alert('Bağlantı kurulamadı. Lütfen backend servisinin çalıştığını kontrol edin.')
     } finally {
       setLoading(false)
     }
@@ -50,13 +57,13 @@ function Home() {
       <div className="home-shell">
         <section className="home-hero-grid">
           <div>
-            <span className="eyebrow">AI Interview Studio</span>
+            <span className="eyebrow">Yapay Zeka Mülakat Stüdyosu</span>
             <h1 className="hero-title">
-              Gelecegin <em>mulakat</em> deneyimi burada.
+              Geleceğin <em>mülakat</em> deneyimi burada.
             </h1>
             <p className="hero-copy">
-              Yapay zeka destekli simulasyonlarla teknik, davranissal ve iletisim performansinizi tek bir akista gelistirin.
-              Canli geri bildirim, transcript ve detayli analiz ayni platformda.
+              Yapay zeka destekli simülasyonlarla teknik, davranışsal ve iletişim performansınızı tek bir akışta geliştirin.
+              Canlı geri bildirim, transkript ve detaylı analiz aynı platformda.
             </p>
             <div className="hero-actions">
               <button
@@ -64,25 +71,25 @@ function Home() {
                 disabled={loading}
                 className={`btn btn-primary ${loading ? 'animate-pulse-glow' : ''}`}
               >
-                {loading ? 'Oturum hazirlaniyor...' : 'Hemen Basla'}
+                {loading ? 'Oturum hazırlanıyor...' : 'Hemen Başla'}
               </button>
               <button type="button" className="btn btn-secondary" onClick={() => navigate('/reports')}>
-                Ornek Analizleri Gor
+                Geçmiş Analizleri Gör
               </button>
             </div>
 
             <div className="hero-stats">
               <div className="stat-card">
-                <span className="stat-value">Realtime</span>
-                <span className="stat-label">Canli koçluk ve vizyon metrikleri</span>
+                <span className="stat-value">Gerçek Zamanlı</span>
+                <span className="stat-label">Canlı koçluk ve vizyon metrikleri</span>
               </div>
               <div className="stat-card">
-                <span className="stat-value">Transcript</span>
-                <span className="stat-label">Anlik ve oturum sonu konusma dokumu</span>
+                <span className="stat-value">Transkript</span>
+                <span className="stat-label">Anlık ve oturum sonu konuşma dökümü</span>
               </div>
               <div className="stat-card">
-                <span className="stat-value">AI Report</span>
-                <span className="stat-label">Yetkinlik bazli guclu ve gelisim alanlari</span>
+                <span className="stat-value">AI Rapor</span>
+                <span className="stat-label">Yetkinlik bazlı güçlü ve gelişim alanları</span>
               </div>
             </div>
           </div>
@@ -95,48 +102,47 @@ function Home() {
               </div>
             </div>
             <div className="hero-floating-card">
-              <div className="eyebrow" style={{ marginBottom: 10 }}>Canli Koç</div>
+              <div className="eyebrow" style={{ marginBottom: 10 }}>Canlı Koç</div>
               <p style={{ margin: 0 }}>
-                Goz temasi, tempo, durus ve icerik kalitesini tek panelde izleyin.
+                Göz teması, tempo, duruş ve içerik kalitesini tek panelde izleyin.
               </p>
             </div>
           </div>
         </section>
 
         <section className="home-section">
-          <span className="eyebrow">Surec nasil isler</span>
+          <span className="eyebrow">Süreç nasıl işler</span>
           <div className="feature-grid">
             <article className="feature-card primary">
               <div className="feature-icon">1</div>
               <h3>Role uygun sorular</h3>
-              <p>Secilen role ve dile gore seans otomatik uretilir, soru akisi pozisyona gore sekillenir.</p>
+              <p>Seçilen role ve dile göre seans otomatik üretilir, soru akışı pozisyona göre şekillenir.</p>
             </article>
             <article className="feature-card secondary">
               <div className="feature-icon">2</div>
-              <h3>Canli geribildirim</h3>
-              <p>Konusma hizi, goz iletisimi, postur ve ipucu paneli mulakat boyunca sizinle kalir.</p>
+              <h3>Canlı geri bildirim</h3>
+              <p>Konuşma hızı, göz iletişimi, postür ve ipucu paneli mülakat boyunca sizinle kalır.</p>
             </article>
             <article className="feature-card tertiary">
               <div className="feature-icon">3</div>
               <h3>Derin analiz raporu</h3>
-              <p>Oturum sonunda skor, feedback ve AI coaching ile gelisim yolunuzu net gorursunuz.</p>
+              <p>Oturum sonunda skor, geri bildirim ve AI coaching ile gelişim yolunuzu net görürsünüz.</p>
             </article>
           </div>
         </section>
 
         <section className="config-section">
           <div className="config-panel glass-card">
-            <span className="eyebrow">Oturum kurulum</span>
-            <h2>Mulakatinizi simdi baslatin.</h2>
+            <span className="eyebrow">Oturum kurulumu</span>
+            <h2>Mülakatınızı şimdi başlatın.</h2>
             <p>
-              Ayni tasarim diliyle hazirlanan bu panel artik dogrudan proje akisinin parcasi. Seciminizi yapin, API oturumu olustursun
-              ve sizi canli mulakat ekranina tasiyalim.
+              Seçiminizi yapın, API oturumu oluştursun ve sizi canlı mülakat ekranına taşıyalım.
             </p>
           </div>
 
           <div className="form config-panel">
             <div className="form-group">
-              <label>Select Role</label>
+              <label>Pozisyon Seçin</label>
               <select value={selectedRole} onChange={(e) => setSelectedRole(e.target.value)}>
                 {roles.map((role) => (
                   <option key={role} value={role}>{role}</option>
@@ -146,7 +152,7 @@ function Home() {
 
             <div className="config-grid">
               <div className="form-group">
-                <label>Select Language</label>
+                <label>Dil Seçin</label>
                 <select value={selectedLanguage} onChange={(e) => setSelectedLanguage(e.target.value)}>
                   {languages.map((lang) => (
                     <option key={lang.code} value={lang.code}>{lang.label}</option>
@@ -154,14 +160,18 @@ function Home() {
                 </select>
               </div>
 
-              <div className="config-card">
-                <h3>Hazir durum</h3>
-                <p style={{ marginBottom: 0 }}>Kamera, mikrofon ve analiz servisleri ayni akista kullanilir.</p>
+              <div className="form-group">
+                <label>Zorluk Seviyesi</label>
+                <select value={selectedDifficulty} onChange={(e) => setSelectedDifficulty(e.target.value as typeof selectedDifficulty)}>
+                  {difficulties.map((d) => (
+                    <option key={d.value} value={d.value}>{d.label}</option>
+                  ))}
+                </select>
               </div>
             </div>
 
             <div className="form-group">
-              <label>Select Mode</label>
+              <label>Mod Seçin</label>
               <div className="mode-options">
                 <label>
                   <input
@@ -171,7 +181,7 @@ function Home() {
                     checked={selectedMode === 'realtime'}
                     onChange={(e) => setSelectedMode(e.target.value as 'realtime' | 'offline')}
                   />
-                  Real-time interview session
+                  Gerçek zamanlı mülakat oturumu
                 </label>
                 <label>
                   <input
@@ -181,7 +191,7 @@ function Home() {
                     checked={selectedMode === 'offline'}
                     onChange={(e) => setSelectedMode(e.target.value as 'realtime' | 'offline')}
                   />
-                  Offline upload and later analysis
+                  Sonradan yükle ve analiz et
                 </label>
               </div>
             </div>
@@ -191,7 +201,7 @@ function Home() {
               disabled={loading}
               className={`btn btn-primary ${loading ? 'animate-pulse-glow' : ''}`}
             >
-              {loading ? 'Oturum hazirlaniyor...' : 'Mulakati Baslat'}
+              {loading ? 'Oturum hazırlanıyor...' : 'Mülakatı Başlat'}
             </button>
           </div>
         </section>

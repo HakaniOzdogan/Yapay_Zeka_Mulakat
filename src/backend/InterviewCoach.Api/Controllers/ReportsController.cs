@@ -41,7 +41,7 @@ public class ReportsController : ControllerBase
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status413PayloadTooLarge)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status429TooManyRequests)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
-    public async Task<ActionResult<ReportDto>> GetReport(Guid sessionId)
+    public async Task<ActionResult<ReportDto>> GetReport(Guid sessionId, CancellationToken cancellationToken)
     {
         var session = await _db.Sessions
             .AsNoTracking()
@@ -55,7 +55,7 @@ public class ReportsController : ControllerBase
                 Mode = null,
                 Status = s.Status
             })
-            .FirstOrDefaultAsync();
+            .FirstOrDefaultAsync(cancellationToken);
 
         if (session == null)
             return this.NotFoundProblem($"Session '{sessionId}' was not found.");
@@ -73,7 +73,7 @@ public class ReportsController : ControllerBase
                 Overall = sc.OverallScore,
                 CreatedAt = null
             })
-            .FirstOrDefaultAsync();
+            .FirstOrDefaultAsync(cancellationToken);
 
         var patterns = await _db.FeedbackItems
             .AsNoTracking()
@@ -87,7 +87,7 @@ public class ReportsController : ControllerBase
                 Severity = p.Severity,
                 Evidence = p.Details
             })
-            .ToListAsync();
+            .ToListAsync(cancellationToken);
 
         var questions = await _db.Questions
             .AsNoTracking()
@@ -101,7 +101,19 @@ public class ReportsController : ControllerBase
                 AudioUrl = q.AudioUrl,
                 CreatedAt = q.CreatedAt
             })
-            .ToListAsync();
+            .ToListAsync(cancellationToken);
+
+        var transcriptLines = await _db.TranscriptSegments
+            .AsNoTracking()
+            .Where(s => s.SessionId == sessionId)
+            .OrderBy(s => s.StartMs)
+            .Select(s => new TranscriptLineDto
+            {
+                StartMs = s.StartMs,
+                EndMs = s.EndMs,
+                Text = s.Text
+            })
+            .ToListAsync(cancellationToken);
 
         var derivedSeries = DerivedKeys.ToDictionary(
             key => key,
@@ -114,8 +126,8 @@ public class ReportsController : ControllerBase
             Patterns = patterns,
             Questions = questions,
             DerivedSeries = derivedSeries,
-            Transcript = [],
-            TranscriptNotice = "Transcript is disabled in this build."
+            Transcript = transcriptLines,
+            TranscriptNotice = null
         };
 
         return Ok(report);

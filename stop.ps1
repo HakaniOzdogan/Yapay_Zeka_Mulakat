@@ -3,10 +3,8 @@ param(
     [switch]$RemoveVolumes,
     [ValidateSet("auto", "gpu", "cpu")]
     [string]$SpeechProfile = "auto",
-    [ValidateSet("ultra", "balanced", "quality")]
-    [string]$LatencyProfile = "ultra",
-    [ValidateSet("tiny", "small", "medium", "vibevoice")]
-    [string]$SpeechModel = "vibevoice",
+    [ValidateSet("tiny", "small", "medium")]
+    [string]$SpeechModel = "medium",
     [string]$ComposeFile = "docker/docker-compose.yml"
 )
 
@@ -15,18 +13,16 @@ $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $root
 
-$composeFile = Join-Path $root $ComposeFile
+$composeFile    = Join-Path $root $ComposeFile
 $gpuComposeFile = Join-Path $root "docker/docker-compose.gpu.yml"
 
 if (-not (Test-Path $composeFile)) {
-    throw "Docker Compose file was not found: $composeFile"
+    throw "Docker Compose dosyasi bulunamadi: $composeFile"
 }
 
 function Test-HostNvidiaGpu {
     $cmd = Get-Command "nvidia-smi" -ErrorAction SilentlyContinue
-    if (-not $cmd) {
-        return $false
-    }
+    if (-not $cmd) { return $false }
 
     try {
         & $cmd.Source "-L" *> $null
@@ -46,40 +42,26 @@ function Test-DockerNvidiaRuntime {
 }
 
 function Resolve-SpeechRuntimeProfile {
-    param(
-        [string]$RequestedProfile
-    )
+    param([string]$RequestedProfile)
 
     $gpuAvailable = (Test-HostNvidiaGpu) -and (Test-DockerNvidiaRuntime)
     switch ($RequestedProfile) {
         "gpu" {
             if (-not $gpuAvailable) {
-                throw "SpeechProfile 'gpu' was requested, but NVIDIA GPU access is not available for Docker."
+                throw "SpeechProfile 'gpu' secildi ancak NVIDIA GPU Docker icin mevcut degil."
             }
             return "gpu"
         }
-        "cpu" {
-            return "cpu"
-        }
+        "cpu" { return "cpu" }
         default {
-            if ($gpuAvailable) {
-                return "gpu"
-            }
+            if ($gpuAvailable) { return "gpu" }
             return "cpu"
         }
     }
 }
 
 $selectedProfile = Resolve-SpeechRuntimeProfile -RequestedProfile $SpeechProfile
-$selectedLatencyProfile = if (-not $PSBoundParameters.ContainsKey("LatencyProfile")) {
-    switch ($SpeechModel) {
-        "medium" { "balanced" }
-        "vibevoice" { "quality" }
-        default { $LatencyProfile }
-    }
-} else {
-    $LatencyProfile
-}
+
 $composeArgs = @("-f", $composeFile)
 if ($selectedProfile -eq "gpu" -and (Test-Path $gpuComposeFile)) {
     $composeArgs += @("-f", $gpuComposeFile)
@@ -89,12 +71,15 @@ if ($RemoveVolumes) {
     $composeArgs += "-v"
 }
 
-Write-Host "Stopping Docker services..." -ForegroundColor Yellow
-Write-Host "Speech profile: $selectedProfile | model: $SpeechModel | latency: $selectedLatencyProfile" -ForegroundColor DarkGray
+Write-Host ""
+Write-Host "=== Interview AI Durduruluyor ===" -ForegroundColor Yellow
+Write-Host "Profil: $selectedProfile | Model: $SpeechModel" -ForegroundColor DarkGray
+
 & docker compose @composeArgs
 
 if ($LASTEXITCODE -ne 0) {
-    throw "docker compose failed with exit code $LASTEXITCODE"
+    throw "docker compose hata kodu $LASTEXITCODE ile basarisiz oldu."
 }
 
-Write-Host "Done. Services stopped." -ForegroundColor Green
+Write-Host ""
+Write-Host "Tum servisler durduruldu." -ForegroundColor Green
