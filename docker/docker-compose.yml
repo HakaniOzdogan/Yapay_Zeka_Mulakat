@@ -50,6 +50,7 @@ services:
       args:
         VITE_API_URL: ${VITE_API_URL:-http://localhost:8080/api}
         VITE_SPEECH_URL: ${VITE_SPEECH_URL:-http://localhost:8000}
+        VITE_STITCH_API_KEY: ${VITE_STITCH_API_KEY:-}
     restart: unless-stopped
     depends_on:
       api:

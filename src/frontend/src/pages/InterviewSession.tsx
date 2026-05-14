@@ -7,7 +7,6 @@ import { generateCoachingHints, CoachingHint } from '../services/CoachingHints'
 import { AudioAnalyzer } from '../services/AudioAnalyzer'
 import {
   connectStreamingAsr,
-  getSpeechModelLabel,
   getSpeechReadinessMessage,
   getSpeechRetryNotice,
   getStreamingAsrReadiness,
@@ -58,33 +57,6 @@ type AudioActivityState =
   | 'finalized-recently'
   | 'speech-unavailable'
 
-const ASR_STATUS_LABELS: Record<StreamingAsrStatus, string> = {
-  connecting: 'STARTING',
-  connected: 'LIVE',
-  reconnecting: 'RETRYING',
-  error: 'ISSUE',
-  stopped: 'STOPPED'
-}
-
-const AUDIO_ACTIVITY_LABELS: Record<AudioActivityState, string> = {
-  idle: 'Idle',
-  capturing: 'Listening for speech',
-  'receiving-partials': 'Receiving live partials',
-  'awaiting-final': 'Audio received, waiting for a short pause',
-  'finalized-recently': 'Recent finalized transcript received',
-  'speech-unavailable': 'Speech service unavailable'
-}
-
-function formatTranscriptActivity(timestampMs: number | null, now: Date): string {
-  if (!timestampMs) return 'not yet'
-  const deltaSeconds = Math.max(0, Math.round((now.getTime() - timestampMs) / 1000))
-  const clockLabel = new Date(timestampMs).toLocaleTimeString('tr-TR', {
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit'
-  })
-  return deltaSeconds === 0 ? `${clockLabel} (just now)` : `${clockLabel} (${deltaSeconds}s ago)`
-}
 
 function deriveAudioActivityState(params: {
   isRecording: boolean
@@ -239,7 +211,7 @@ function InterviewSession() {
   const audioAnalyzerRef = useRef<AudioAnalyzer | null>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const audioChunksRef = useRef<Blob[]>([])
-  const recordingMimeTypeRef = useRef('audio/webm')
+  const recordingMimeTypeRef = useRef('video/webm')
   const frameCountRef = useRef(0)
   const mediaStreamRef = useRef<MediaStream | null>(null)
   const lastPoseLandmarksRef = useRef<any[] | null>(null)
@@ -274,6 +246,20 @@ function InterviewSession() {
   useEffect(() => {
     loadSession()
     initializeMediaPipe()
+
+    const checkSpeechService = async () => {
+      try {
+        const speechUrl = import.meta.env.VITE_SPEECH_URL || 'http://localhost:8000'
+        const readiness = await getStreamingAsrReadiness(speechUrl)
+        setSpeechReady(readiness.ready)
+        if (readiness.details) {
+          setSpeechDiagnostics(readiness.details as any)
+        }
+      } catch {
+        setSpeechReady(false)
+      }
+    }
+    void checkSpeechService()
   }, [sessionId])
 
   useEffect(() => {
@@ -448,11 +434,7 @@ function InterviewSession() {
       }
 
       const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true
-        },
+        audio: true,
         video: { width: { ideal: 1280 }, height: { ideal: 720 } }
       })
 
@@ -923,7 +905,7 @@ function InterviewSession() {
     setUploading(true)
     try {
       // Create FormData with audio blob
-      const recordingMimeType = recordingMimeTypeRef.current || 'audio/webm'
+      const recordingMimeType = recordingMimeTypeRef.current || 'video/webm'
       const audioBlob = new Blob(chunks, { type: recordingMimeType })
       const fileExtension = recordingMimeType.includes('ogg')
         ? 'ogg'
@@ -1015,7 +997,7 @@ function InterviewSession() {
     const questionOrder = currentQuestionIndex + 1 // 1-based
 
     if (recordedChunks.length > 0) {
-      const mimeType = recordingMimeTypeRef.current || 'audio/webm'
+      const mimeType = recordingMimeTypeRef.current || 'video/webm'
       const audioBlob = new Blob(recordedChunks, { type: mimeType })
 
       // Upload the raw audio (fire-and-forget, don't block UX)
@@ -1023,20 +1005,10 @@ function InterviewSession() {
         void ApiService.uploadQuestionAudio(sessionId, questionOrder, audioBlob, mimeType)
       }
 
-      if (isLastQuestion) {
-        // Final question: wait once so report can include the latest transcript.
-        try {
-          await uploadAndTranscribe(recordedChunks, false)
-        } catch {
-          // continue to finalize
-        }
-      } else {
-        // Intermediate questions: do not block UX, transcribe in background.
-        setBackgroundTranscribes(prev => prev + 1)
-        void uploadAndTranscribe(recordedChunks, false).finally(() => {
-          setBackgroundTranscribes(prev => Math.max(0, prev - 1))
-        })
-      }
+      // All questions: transcribe in background, never block navigation
+      void uploadAndTranscribe(recordedChunks, false).catch(() => {
+        // transcription failure is non-fatal
+      })
     }
 
     proceedToNext()
@@ -1102,49 +1074,6 @@ function InterviewSession() {
   const eyeContactPercent = Math.round(currentMetrics.eyeContact)
   const pacePercent = Math.round(currentMetrics.headStability)
   const sentimentLabel = llmInsight?.summary || `${behaviorStats.currentEmotion} anlatim`
-  const asrStatusLabel = ASR_STATUS_LABELS[asrStatus]
-  const speechModelLabel = getSpeechModelLabel(speechReady, speechReadinessReason)
-  const audioActivityLabel = AUDIO_ACTIVITY_LABELS[audioActivityState]
-  const lastPartialLabel = formatTranscriptActivity(lastPartialAt, clockNow)
-  const lastFinalLabel = formatTranscriptActivity(lastFinalAt, clockNow)
-  const vadChunkTotal = (speechDiagnostics?.vad_voiced_chunks || 0) + (speechDiagnostics?.vad_rejected_chunks || 0)
-  const vadVoicedRatio = vadChunkTotal > 0
-    ? Math.round(((speechDiagnostics?.vad_voiced_chunks || 0) / vadChunkTotal) * 100)
-    : null
-  const vadRejectedRatio = vadChunkTotal > 0
-    ? Math.round(((speechDiagnostics?.vad_rejected_chunks || 0) / vadChunkTotal) * 100)
-    : null
-  const sileroFallbackWarning = speechDiagnostics && !speechDiagnostics.silero_available
-    ? 'Silero aktif degil. Transcript kalite modu su anda energy fallback ile calisiyor.'
-    : null
-  const uploadFormatLabel = speechDiagnostics?.last_upload_container
-    ? `${speechDiagnostics.last_upload_container}${speechDiagnostics.last_upload_codec ? ` / ${speechDiagnostics.last_upload_codec}` : ''}`
-    : '—'
-  const uploadSampleLabel = speechDiagnostics?.last_upload_sample_rate
-    ? `${speechDiagnostics.last_upload_sample_rate} Hz / ${speechDiagnostics.last_upload_channels || '?'} ch`
-    : '—'
-  const speechIssueDetail = (() => {
-    if (!isRecording) return null
-    switch (speechReadinessReason) {
-      case 'unreachable':
-        return 'Speech servisine ulasilamiyor. Docker servisleri ve ag erisimi kontrol edilmeli.'
-      case 'model_loading':
-        return 'Transcript modeli yukleniyor. Hazir oldugunda sayfa yenilemeden otomatik baglanacak.'
-      case 'at_capacity':
-        return 'Tum transcript oturum slotlari dolu. Kisa bir sure sonra yeniden baglanilacak.'
-      case 'startup_failed':
-        return speechReadyMessage || 'Speech modeli baslatilamadi. Sunucu ayarlarini kontrol edin.'
-      default:
-        return asrStatus === 'error' ? (asrError || 'Canli transcript baglantisinda bir sorun olustu.') : null
-    }
-  })()
-  const videoChipLabel = (() => {
-    if (speechReadinessReason === 'startup_failed') return 'Transcript hatasi'
-    if (asrStatus === 'connected') return 'Ses aktif'
-    if (asrStatus === 'reconnecting') return 'Transcript yeniden baglaniyor'
-    if (speechReady === false) return 'Transcript beklemede'
-    return 'Mikrofon hazirlaniyor'
-  })()
 
   return (
     <div className="page interview-page session-page">
@@ -1219,14 +1148,6 @@ function InterviewSession() {
               </div>
             </section>
 
-            {isRecording && (
-              <LiveHints
-                hints={coaching}
-                metrics={currentMetrics}
-                behaviorStats={behaviorStats}
-                warningHistory={warningHistory}
-              />
-            )}
           </div>
 
           <div className="video-column">
@@ -1296,12 +1217,29 @@ function InterviewSession() {
             </div>
 
             <div className="system-status-panel">
+              {!isRecording && (
+                <p className={`ready-message ${!mediaReady ? 'ready-message--loading' : ''}`}>
+                  {!mediaReady
+                    ? '⏳ Görüntü analiz modeli yükleniyor, lütfen bekleyin...'
+                    : speechReady === null
+                      ? '⏳ Ses servisi kontrol ediliyor...'
+                      : '✅ Kayıt için hazırsınız, başlayabilirsiniz.'}
+                </p>
+              )}
+
               <div className="status-controls">
                 <button
                   onClick={isRecording ? stopRecording : startRecording}
+                  disabled={!isRecording && (!mediaReady || speechReady === null)}
                   className={`btn ${isRecording ? 'btn-danger' : 'btn-primary'}`}
                 >
-                  {isRecording ? 'Kaydı Durdur' : 'Kaydı Başlat'}
+                  {isRecording
+                    ? 'Kaydı Durdur'
+                    : !mediaReady
+                      ? 'Model Yükleniyor...'
+                      : speechReady === null
+                        ? 'Servis Kontrol Ediliyor...'
+                        : 'Kaydı Başlat'}
                 </button>
                 <div className="overlay-toggles">
                   <button
@@ -1313,26 +1251,11 @@ function InterviewSession() {
                   </button>
                   {showOverlay && (
                     <>
-                      <button
-                        type="button"
-                        onClick={() => setShowFaceOverlay(v => !v)}
-                        className="btn btn-secondary btn-sm"
-                      >
+                      <button type="button" onClick={() => setShowFaceOverlay(v => !v)} className="btn btn-secondary btn-sm">
                         {showFaceOverlay ? 'Yüz ✓' : 'Yüz'}
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => setShowPoseOverlay(v => !v)}
-                        className="btn btn-secondary btn-sm"
-                      >
+                      <button type="button" onClick={() => setShowPoseOverlay(v => !v)} className="btn btn-secondary btn-sm">
                         {showPoseOverlay ? 'Vücut ✓' : 'Vücut'}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setShowDiagnosticsOverlay(v => !v)}
-                        className="btn btn-secondary btn-sm"
-                      >
-                        {showDiagnosticsOverlay ? 'İstatistik ✓' : 'İstatistik'}
                       </button>
                     </>
                   )}
@@ -1352,12 +1275,6 @@ function InterviewSession() {
                     {speechReady ? '● Hazır' : '◌ Bekleniyor'}
                   </span>
                 </div>
-                {speechDiagnostics?.model && (
-                  <div className="status-row">
-                    <span className="status-label">Model</span>
-                    <span className="status-value-sm">{speechDiagnostics.model}</span>
-                  </div>
-                )}
                 {isRecording && (
                   <>
                     <div className="status-row">
@@ -1368,26 +1285,16 @@ function InterviewSession() {
                       <span className="status-label">Duruş</span>
                       <span className="status-value-sm">{Math.round(currentMetrics.posture)}%</span>
                     </div>
-                    <div className="status-row">
-                      <span className="status-label">Gönderim</span>
-                      <span className="status-value-sm">{transportStats.sent} batch</span>
-                    </div>
                   </>
                 )}
               </div>
 
               {llmInsight && (
                 <div className="llm-insight">
-                  <div className="llm-insight-title">
-                    AI Analiz — Güven: %{Math.round((llmInsight.confidence || 0) * 100)}
-                  </div>
+                  <div className="llm-insight-title">AI Analiz — Güven: %{Math.round((llmInsight.confidence || 0) * 100)}</div>
                   <div className="llm-insight-summary">{llmInsight.summary}</div>
-                  {llmInsight.risks?.length > 0 && (
-                    <div className="llm-insight-list">⚠ {llmInsight.risks.join(' · ')}</div>
-                  )}
-                  {llmInsight.suggestions?.length > 0 && (
-                    <div className="llm-insight-list">💡 {llmInsight.suggestions.join(' · ')}</div>
-                  )}
+                  {llmInsight.risks?.length > 0 && <div className="llm-insight-list">⚠ {llmInsight.risks.join(' · ')}</div>}
+                  {llmInsight.suggestions?.length > 0 && <div className="llm-insight-list">💡 {llmInsight.suggestions.join(' · ')}</div>}
                 </div>
               )}
             </div>

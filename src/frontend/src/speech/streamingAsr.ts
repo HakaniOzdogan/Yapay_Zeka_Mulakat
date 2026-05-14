@@ -367,21 +367,7 @@ async function createAudioPipeline(
   const audioContext = new AudioContext()
   const source = audioContext.createMediaStreamSource(stream)
   const sampleRate = audioContext.sampleRate
-
-  // --- Studio Equalizer Filters ---
-  const highPass = audioContext.createBiquadFilter()
-  highPass.type = 'highpass'
-  highPass.frequency.value = 80 // Cut low-end rumble/wind
-
-  const highShelf = audioContext.createBiquadFilter()
-  highShelf.type = 'highshelf'
-  highShelf.frequency.value = 3000 // Boost speech presence/treble
-  highShelf.gain.value = 3 // +3dB gentle speech clarity boost (was 10dB — too aggressive)
-
-  source.connect(highPass)
-  highPass.connect(highShelf)
-  const finalSource = highShelf
-  // --------------------------------
+  const finalSource = source
 
   const cleanup: Array<() => void> = []
 
