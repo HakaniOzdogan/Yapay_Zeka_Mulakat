@@ -1,8 +1,15 @@
-# Interview AI - Yapay Zeka Destekli Mülakat Sistemi
+> ⚠️ **ARŞİV:** Bu klasör artık aktif değildir. ASP.NET Core 10 + SQL Server + Blazor tabanlı eski prototip mimarisini içerir.
+>
+> Aktif sistem `src/` dizinindedir: ASP.NET Core 8 + PostgreSQL + React + TypeScript.
+> Güncel mimari için bkz. [`docs/architecture.md`](../docs/architecture.md).
+
+---
+
+# Interview AI - Yapay Zeka Destekli Mülakat Sistemi (Prototip)
 
 Günümüzde yapay zeka teknolojisini kullanarak interaktif mülakat pratik platformu. Kullanıcılar bu sistem üzerinden mülakat yapabilir, AI botundan geribildirim alabilir ve mülakatlarındaki eksiklikleri ve gelişim alanlarını tespit edebilirler.
 
-## 🎯 Sistem Mimarisi
+## Sistem Mimarisi
 
 ### Backend - ASP.NET Core Web API
 - **Framework**: ASP.NET Core 10.0
@@ -47,7 +54,7 @@ Günümüzde yapay zeka teknolojisini kullanarak interaktif mülakat pratik plat
 - Ortalama başarı oranı
 - Zayıf alanlar
 
-## 🚀 Başlangıç
+## Başlangıç
 
 ### Gereksinimler
 - .NET 10.0 SDK
@@ -79,7 +86,7 @@ dotnet run
 
 Swagger UI'ye erişmek için: `https://localhost:5001/swagger/index.html`
 
-## 📊 API Endpoints
+## API Endpoints
 
 ### Users
 - `GET /api/users` - Tüm kullanıcıları al
@@ -104,41 +111,28 @@ Swagger UI'ye erişmek için: `https://localhost:5001/swagger/index.html`
 - `PUT /api/feedback/{id}` - Feedback güncelle
 - `DELETE /api/feedback/{id}` - Feedback sil
 
-## 🏗️ Proje Yapısı
+## Proje Yapısı
 
 ```
 InterviewAI/
-├── Controllers/          # API Controller'ları
+├── Controllers/
 │   ├── UsersController.cs
 │   ├── InterviewsController.cs
 │   └── FeedbackController.cs
-├── Models/              # Domain modelleri
+├── Models/
 │   ├── User.cs
 │   ├── Interview.cs
 │   ├── InterviewQuestion.cs
 │   ├── Feedback.cs
 │   ├── QuestionFeedback.cs
 │   └── UserProgress.cs
-├── Data/                # Entity Framework DbContext
+├── Data/
 │   └── ApplicationDbContext.cs
-├── Program.cs           # Uygulama başlangıç noktası
-├── appsettings.json     # Konfigürasyon
-└── InterviewAI.csproj   # Proje dosyası
+├── Program.cs
+├── appsettings.json
+└── InterviewAI.csproj
 ```
 
-## 🔄 Sonraki Adımlar
-
-1. **AI Bot Entegrasyonu**: ChatGPT API veya Azure OpenAI integrasyon
-2. **Frontend Geliştirme**: React/Angular/Blazor UI
-3. **Mülakat Analiz Motoru**: Otomatik cevap değerlendirmesi
-4. **Raporlama Sistemi**: Detaylı ilerleme ve analytics
-5. **Authentication**: JWT-based kullanıcı kimlik doğrulama
-6. **Notification Sistemi**: Real-time bildirimler
-
-## 📝 Lisans
+## Lisans
 
 Bu proje eğitim amaçlı geliştirilmiştir.
-
-## 👤 Geliştirici
-
-Mülakat Hazırlık Sistemi Projesi - 2026

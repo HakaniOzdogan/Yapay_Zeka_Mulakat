@@ -6,14 +6,8 @@ import { MetricsComputer, Metrics, BehaviorStats } from '../services/MetricsComp
 import { generateCoachingHints, CoachingHint } from '../services/CoachingHints'
 import { AudioAnalyzer } from '../services/AudioAnalyzer'
 import {
-  connectStreamingAsr,
-  getSpeechReadinessMessage,
-  getSpeechRetryNotice,
   getStreamingAsrReadiness,
-  StreamingAsrConnection,
-  StreamingAsrError,
   SpeechReadinessReason,
-  StreamingAsrStatus,
   SpeechDiagnostics
 } from '../speech/streamingAsr'
 import { SessionTransport, SessionTransportStats } from '../services/SessionTransport'
@@ -29,8 +23,11 @@ import {
 } from '../vision/features'
 import { Calibration, HeadPose, PoseLandmarks, VisionMetrics } from '../vision/types'
 import { VideoCanvas } from '../components/VideoCanvas'
-import { LiveHints } from '../components/LiveHints'
 import '../styles/pages.css'
+
+// Streaming ASR types — backward compat for legacy state/refs
+type StreamingAsrStatus = 'connecting' | 'connected' | 'reconnecting' | 'error' | 'stopped'
+interface StreamingAsrConnection { stop(): Promise<void> }
 
 const VISION_DEBUG_OVERLAY = import.meta.env.DEV
 const DEBUG_TRANSPORT = import.meta.env.DEV
@@ -40,7 +37,6 @@ const ROLLING_SECONDS = 5
 const APPROX_FPS = 30
 const VISION_BUFFER_SIZE = ROLLING_SECONDS * APPROX_FPS
 const METRIC_SMOOTH_ALPHA = 0.2
-const ASR_BOOTSTRAP_RETRY_MS = 5000
 
 interface WarningHistoryItem {
   id: string
@@ -87,20 +83,6 @@ function deriveAudioActivityState(params: {
 
 function normalizeTranscriptText(text: string): string {
   return text.trim().toLocaleLowerCase('tr-TR').replace(/\s+/g, ' ')
-}
-
-function appendUniqueTranscriptLines(previous: string[], nextLines: string[]): string[] {
-  const merged = [...previous]
-  for (const line of nextLines) {
-    const trimmed = line.trim()
-    if (!trimmed) continue
-    const lastLine = merged.length > 0 ? merged[merged.length - 1] : null
-    if (lastLine && normalizeTranscriptText(lastLine) === normalizeTranscriptText(trimmed)) {
-      continue
-    }
-    merged.push(trimmed)
-  }
-  return merged.slice(-5)
 }
 
 function hashTranscriptSeed(seed: string, offset: number): string {
@@ -167,7 +149,6 @@ function InterviewSession() {
   const [showTranscript, setShowTranscript] = useState(false)
   const [transcriptData, setTranscriptData] = useState<any>(null)
   const [uploading, setUploading] = useState(false)
-  const [backgroundTranscribes, setBackgroundTranscribes] = useState(0)
   const [videoStream, setVideoStream] = useState<MediaStream | null>(null)
   const [showOverlay, setShowOverlay] = useState(true)
   const [showFaceOverlay, setShowFaceOverlay] = useState(true)
@@ -212,6 +193,15 @@ function InterviewSession() {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const audioChunksRef = useRef<Blob[]>([])
   const recordingMimeTypeRef = useRef('video/webm')
+  // Screen recording
+  const screenStreamRef = useRef<MediaStream | null>(null)
+  const screenRecorderRef = useRef<MediaRecorder | null>(null)
+  const screenChunksRef = useRef<Blob[]>([])
+  const screenMimeTypeRef = useRef('video/webm')
+  // Session-level timing (set once, never reset between questions)
+  const trueSessionStartMsRef = useRef<number | null>(null)
+  const questionStartMsRef = useRef<number>(0)
+  const questionEndMsRef = useRef<number>(0)
   const frameCountRef = useRef(0)
   const mediaStreamRef = useRef<MediaStream | null>(null)
   const lastPoseLandmarksRef = useRef<any[] | null>(null)
@@ -387,22 +377,6 @@ function InterviewSession() {
     }
   }
 
-  const applySpeechReadiness = (ready: boolean, reason: SpeechReadinessReason, detail?: string | null) => {
-    setSpeechReady(ready)
-    setSpeechReadinessReason(reason)
-    setSpeechReadyMessage(getSpeechReadinessMessage(reason, detail))
-  }
-
-  const scheduleAsrBootstrapRetry = (stream: MediaStream, notice: string | null) => {
-    if (!isRecordingRef.current || asrBootstrapTimerRef.current) return
-    setAsrStatus('reconnecting')
-    setAsrNotice(notice)
-    asrBootstrapTimerRef.current = setTimeout(() => {
-      asrBootstrapTimerRef.current = null
-      void startStreamingAsr(stream)
-    }, ASR_BOOTSTRAP_RETRY_MS)
-  }
-
   const startRecording = async () => {
     try {
       resetVisionPipeline()
@@ -441,6 +415,27 @@ function InterviewSession() {
       mediaStreamRef.current = stream
       setVideoStream(stream)
 
+      // True session start — set only once for session-relative MetricEvent timestamps
+      if (trueSessionStartMsRef.current === null) {
+        trueSessionStartMsRef.current = performance.now()
+      }
+      questionStartMsRef.current = Math.round(performance.now() - trueSessionStartMsRef.current)
+
+      // Her soru için ekran paylaşım izni iste
+      try {
+        const screenStream = await navigator.mediaDevices.getDisplayMedia({
+          video: { frameRate: { ideal: 15 } },
+          audio: false
+        })
+        screenStreamRef.current = screenStream
+        screenStream.getVideoTracks()[0]?.addEventListener('ended', () => {
+          screenStreamRef.current = null
+        })
+      } catch {
+        // Kullanıcı izin vermedi — sadece webcam ile devam et
+        screenStreamRef.current = null
+      }
+
       try {
         if (typeof MediaRecorder !== 'undefined') {
           const mimeCandidates = [
@@ -460,6 +455,25 @@ function InterviewSession() {
             }
           }
           mediaRecorderRef.current.start(1000)
+
+          // Start screen recorder if stream is available
+          if (screenStreamRef.current) {
+            try {
+              screenChunksRef.current = []
+              const screenMime = MediaRecorder.isTypeSupported('video/webm;codecs=vp8')
+                ? 'video/webm;codecs=vp8'
+                : 'video/webm'
+              screenMimeTypeRef.current = screenMime
+              const screenRec = new MediaRecorder(screenStreamRef.current, { mimeType: screenMime })
+              screenRec.ondataavailable = (e) => {
+                if (e.data.size > 0) screenChunksRef.current.push(e.data)
+              }
+              screenRec.start(1000)
+              screenRecorderRef.current = screenRec
+            } catch {
+              screenRecorderRef.current = null
+            }
+          }
         } else {
           console.warn('MediaRecorder unavailable; continuing with live metrics only.')
         }
@@ -529,6 +543,11 @@ function InterviewSession() {
     setAsrNotice(null)
     resetTranscriptDiagnostics()
 
+    // Record question end time (session-relative)
+    if (trueSessionStartMsRef.current !== null) {
+      questionEndMsRef.current = Math.round(performance.now() - trueSessionStartMsRef.current)
+    }
+
     let recorderStopPromise: Promise<unknown> = Promise.resolve()
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       recorderStopPromise = new Promise(resolve => {
@@ -546,6 +565,15 @@ function InterviewSession() {
       mediaRecorderRef.current.stop()
     }
 
+    // Stop screen recorder
+    if (screenRecorderRef.current && screenRecorderRef.current.state !== 'inactive') {
+      try {
+        screenRecorderRef.current.requestData()
+      } catch { /* no-op */ }
+      screenRecorderRef.current.stop()
+    }
+    screenRecorderRef.current = null
+
     closeMediaCapture()
     setFaceLandmarks(undefined)
     setPoseLandmarks(undefined)
@@ -562,158 +590,6 @@ function InterviewSession() {
     await transportStopPromise
     await asrStopPromise
     await recorderStopPromise
-  }
-
-  const recoverStreamingAsr = async (stream: MediaStream, error: StreamingAsrError) => {
-    if (error.code === 'microphone_permission_denied') {
-      setAsrStatus('error')
-      setAsrError(error.message)
-      applySpeechReadiness(false, 'startup_failed', error.message)
-      return
-    }
-
-    const previousConnection = asrConnectionRef.current
-    asrConnectionRef.current = null
-
-    if (previousConnection) {
-      try {
-        await previousConnection.stop()
-      } catch (stopError) {
-        console.warn('Failed to stop previous ASR connection cleanly:', stopError)
-      }
-    }
-
-    if (!isRecordingRef.current) {
-      return
-    }
-
-    const speechUrl = import.meta.env.VITE_SPEECH_URL || 'http://localhost:8000'
-    const readiness = await getStreamingAsrReadiness(speechUrl)
-    setAsrError(null)
-
-    if (readiness.ready) {
-      applySpeechReadiness(true, 'ready')
-      scheduleAsrBootstrapRetry(stream, 'Canli transcript baglantisi koptu. Yeniden baglaniliyor.')
-      return
-    }
-
-    applySpeechReadiness(false, readiness.reason, readiness.details?.failureDetail || error.message)
-    scheduleAsrBootstrapRetry(stream, getSpeechRetryNotice(readiness.reason))
-  }
-
-  const startStreamingAsr = async (stream: MediaStream) => {
-    if (!sessionId || !isRecordingRef.current || asrBootstrapInFlightRef.current || asrConnectionRef.current) return
-
-    const speechUrl = import.meta.env.VITE_SPEECH_URL || 'http://localhost:8000'
-    clearAsrBootstrapRetry()
-    asrBootstrapInFlightRef.current = true
-    setAsrError(null)
-    setAsrNotice(null)
-    setAsrStatus((prev) => prev === 'reconnecting' ? 'reconnecting' : 'connecting')
-
-    try {
-      const readiness = await getStreamingAsrReadiness(speechUrl)
-
-      if (!isRecordingRef.current) {
-        return
-      }
-
-      if (!readiness.ready) {
-        applySpeechReadiness(false, readiness.reason, readiness.details?.failureDetail || readiness.message)
-        scheduleAsrBootstrapRetry(stream, getSpeechRetryNotice(readiness.reason))
-        return
-      }
-
-      applySpeechReadiness(true, 'ready')
-
-      const connection = await connectStreamingAsr({
-        url: speechUrl,
-        sessionId,
-        lang: session?.language === 'en' ? 'en' : 'tr',
-        task: 'transcribe',
-        useVad: true,
-        mediaStream: stream,
-        onStatus: (status) => {
-          setAsrStatus(status)
-          if (status === 'connected') {
-            applySpeechReadiness(true, 'ready')
-            setAsrError(null)
-            setAsrNotice(null)
-          }
-        },
-        onAudioChunk: () => {
-          setLastAudioChunkAt(Date.now())
-        },
-        onError: (error) => {
-          void recoverStreamingAsr(stream, error)
-        },
-        onNotice: (message) => {
-          setAsrNotice(message)
-        },
-        onDiagnostics: (diag) => {
-          setSpeechDiagnostics(diag)
-        },
-        onPartial: (text) => {
-          const trimmed = text.trim()
-          setLiveTranscriptInterim(trimmed)
-          if (trimmed.length > 0) {
-            setLastPartialAt(Date.now())
-          }
-        },
-        onFinal: (payload) => {
-          applySpeechReadiness(true, 'ready')
-          setAsrNotice(null)
-          setLiveTranscriptInterim('')
-          setLastFinalAt(Date.now())
-          const finalizedLines = payload.segments
-            .map((segment) => segment.text.trim())
-            .filter((line) => line.length > 0)
-
-          if (finalizedLines.length > 0) {
-            setLiveTranscriptLines((prev) => appendUniqueTranscriptLines(prev, finalizedLines))
-          }
-
-          const ingestSegments = payload.segments
-            .filter((segment) => segment.text && segment.text.trim().length > 0)
-            .map((segment) => ({
-              clientSegmentId: buildDeterministicTranscriptSegmentId(
-                Math.max(0, Math.round(segment.start_ms)),
-                Math.max(0, Math.round(segment.end_ms)),
-                segment.text.trim()
-              ),
-              startMs: Math.max(0, Math.round(segment.start_ms)),
-              endMs: Math.max(0, Math.round(segment.end_ms)),
-              text: segment.text.trim()
-            }))
-
-          if (ingestSegments.length === 0) return
-
-          void ApiService.postTranscriptBatch(sessionId, ingestSegments).catch((error) => {
-            console.warn('Failed to push transcript batch:', error)
-          })
-        }
-      })
-
-      if (!isRecordingRef.current) {
-        await connection.stop()
-        return
-      }
-
-      asrConnectionRef.current = connection
-    } catch (error) {
-      if (!isRecordingRef.current) {
-        return
-      }
-
-      const message = error instanceof Error && error.message
-        ? error.message
-        : 'Live transcript could not start. Vision can continue.'
-      applySpeechReadiness(false, 'startup_failed', message)
-      scheduleAsrBootstrapRetry(stream, getSpeechRetryNotice('startup_failed'))
-      console.warn('Streaming ASR startup failed:', error)
-    } finally {
-      asrBootstrapInFlightRef.current = false
-    }
   }
 
   const handleFrame = async (video: HTMLVideoElement, _canvas: HTMLCanvasElement) => {
@@ -747,6 +623,10 @@ function InterviewSession() {
       const nowMs = performance.now()
       const startedAtMs = sessionStartAtMsRef.current ?? nowMs
       const elapsedMs = Math.max(0, Math.round(nowMs - startedAtMs))
+      // Session-relative elapsed (for MetricEvent timestamps — consistent across questions)
+      const sessionElapsedMs = trueSessionStartMsRef.current != null
+        ? Math.max(0, Math.round(nowMs - trueSessionStartMsRef.current))
+        : elapsedMs
       const currentHeadPose = faceLm.length > 0 ? computeHeadPose(faceLm) : { yaw: 0, pitch: 0 }
 
       if (faceLm.length > 0) {
@@ -804,11 +684,11 @@ function InterviewSession() {
         calibrated
       })
 
-      if (calibrated && elapsedMs - lastVisionEventSentAtRef.current >= VISION_EVENT_INTERVAL_MS) {
-        lastVisionEventSentAtRef.current = elapsedMs
+      if (calibrated && sessionElapsedMs - lastVisionEventSentAtRef.current >= VISION_EVENT_INTERVAL_MS) {
+        lastVisionEventSentAtRef.current = sessionElapsedMs
         sessionTransportRef.current?.enqueueEvent({
           clientEventId: crypto.randomUUID(),
-          tsMs: elapsedMs,
+          tsMs: sessionElapsedMs,
           source: 'Vision',
           type: 'vision_metrics_v1',
           payload: {
@@ -859,8 +739,10 @@ function InterviewSession() {
 
     stopTracks(mediaStreamRef.current)
     stopTracks(videoStream)
+    stopTracks(screenStreamRef.current)
 
     mediaStreamRef.current = null
+    screenStreamRef.current = null
     setVideoStream(null)
 
     if (audioAnalyzerRef.current) {
@@ -897,45 +779,41 @@ function InterviewSession() {
     }
   }
 
-  const uploadAndTranscribe = async (chunks: Blob[], showModal: boolean): Promise<boolean> => {
-    if (!sessionId || chunks.length === 0) {
-      return false
-    }
+  const uploadAndTranscribe = async (chunks: Blob[], _showModal: boolean, questionOrder: number): Promise<boolean> => {
+    if (!sessionId || chunks.length === 0) return false
 
     setUploading(true)
     try {
-      // Create FormData with audio blob
       const recordingMimeType = recordingMimeTypeRef.current || 'video/webm'
       const audioBlob = new Blob(chunks, { type: recordingMimeType })
-      const fileExtension = recordingMimeType.includes('ogg')
-        ? 'ogg'
-        : recordingMimeType.includes('mpeg')
-          ? 'mp3'
-          : recordingMimeType.includes('mp4')
-            ? 'm4a'
-            : 'webm'
+      const ext = recordingMimeType.includes('mp4') ? 'mp4' : 'webm'
       const formData = new FormData()
-      formData.append('file', audioBlob, `answer.${fileExtension}`)
+      formData.append('file', audioBlob, `answer.${ext}`)
 
-      // Transcribe using speech-service
       const transcriptResult = await ApiService.transcribeAudio(formData, session?.language || 'tr')
-
-      // Store in state for display
       setTranscriptData(transcriptResult)
 
-      // Store in backend
-      if (transcriptResult.segments && sessionId) {
-        await ApiService.storeTranscript(sessionId, {
-          segments: transcriptResult.segments,
-          full_text: transcriptResult.full_text,
-          stats: {
-            duration_ms: transcriptResult.duration_ms,
-            word_count: transcriptResult.word_count,
-            wpm: transcriptResult.wpm,
-            filler_count: transcriptResult.filler_count,
-            pause_count: transcriptResult.pause_count
-          }
-        })
+      if (transcriptResult.segments?.length > 0 && sessionId) {
+        const segments = transcriptResult.segments
+          .filter((s: any) => s.text?.trim())
+          .map((s: any) => ({
+            clientSegmentId: buildDeterministicTranscriptSegmentId(
+              Math.max(0, Math.round(s.start_ms ?? 0)),
+              Math.max(0, Math.round(s.end_ms ?? 0)),
+              s.text.trim()
+            ),
+            startMs: Math.max(0, Math.round(s.start_ms ?? 0)),
+            endMs: Math.max(0, Math.round(s.end_ms ?? 0)),
+            text: s.text.trim(),
+            confidence: s.confidence,
+            questionOrder
+          }))
+
+        if (segments.length > 0) {
+          await ApiService.postTranscriptBatch(sessionId, segments).catch((err) => {
+            console.warn('Transcript batch upload failed:', err)
+          })
+        }
       }
 
       return true
@@ -993,22 +871,31 @@ function InterviewSession() {
 
     const recordedChunks = [...audioChunksRef.current]
     audioChunksRef.current = []
-    const isLastQuestion = currentQuestionIndex >= questions.length - 1
     const questionOrder = currentQuestionIndex + 1 // 1-based
+
+    const startMs = questionStartMsRef.current
+    const endMs = questionEndMsRef.current
 
     if (recordedChunks.length > 0) {
       const mimeType = recordingMimeTypeRef.current || 'video/webm'
       const audioBlob = new Blob(recordedChunks, { type: mimeType })
 
-      // Upload the raw audio (fire-and-forget, don't block UX)
       if (sessionId) {
-        void ApiService.uploadQuestionAudio(sessionId, questionOrder, audioBlob, mimeType)
+        void ApiService.uploadQuestionAudio(sessionId, questionOrder, audioBlob, mimeType, startMs, endMs)
       }
 
-      // All questions: transcribe in background, never block navigation
-      void uploadAndTranscribe(recordedChunks, false).catch(() => {
+      void uploadAndTranscribe(recordedChunks, false, questionOrder).catch(() => {
         // transcription failure is non-fatal
       })
+    }
+
+    // Upload screen recording if available
+    const screenChunks = [...screenChunksRef.current]
+    screenChunksRef.current = []
+    if (screenChunks.length > 0 && sessionId) {
+      const screenMime = screenMimeTypeRef.current || 'video/webm'
+      const screenBlob = new Blob(screenChunks, { type: screenMime })
+      void ApiService.uploadQuestionScreen(sessionId, questionOrder, screenBlob, screenMime)
     }
 
     proceedToNext()
@@ -1150,6 +1037,7 @@ function InterviewSession() {
 
           </div>
 
+          {/* ── ORTA: Video ── */}
           <div className="video-column">
             <div className="video-stage-wrap">
               <div className="video-chip">Kayıt aktif</div>
@@ -1174,13 +1062,11 @@ function InterviewSession() {
                     showDiagnostics={showDiagnosticsOverlay}
                   />
                 )}
-
                 {isRecording && !mediaReady && (
                   <div className="camera-placeholder">
                     <p>Vision modeli hazir degil. Audio transcript bu sirada calismaya devam edebilir.</p>
                   </div>
                 )}
-
                 {VISION_DEBUG_OVERLAY && isRecording && (
                   <div className="vision-debug-overlay">
                     <div className="vision-debug-title">
@@ -1196,7 +1082,6 @@ function InterviewSession() {
                     <div className="vision-debug-line">eyeOpenness: {visionMetrics.eyeOpenness.toFixed(2)}</div>
                   </div>
                 )}
-
                 {DEBUG_TRANSPORT && isRecording && (
                   <div className="transport-debug-overlay">
                     <div className="transport-debug-title">Transport</div>
@@ -1207,7 +1092,6 @@ function InterviewSession() {
                     <div className="transport-debug-line">error: {transportStats.lastError || '-'}</div>
                   </div>
                 )}
-
                 {!isRecording && (
                   <div className="camera-placeholder">
                     <p>Start Recording ile kamera ve mikrofonu baslatin.</p>
@@ -1216,95 +1100,107 @@ function InterviewSession() {
               </div>
             </div>
 
-            <div className="system-status-panel">
-              {!isRecording && (
-                <p className={`ready-message ${!mediaReady ? 'ready-message--loading' : ''}`}>
-                  {!mediaReady
-                    ? '⏳ Görüntü analiz modeli yükleniyor, lütfen bekleyin...'
-                    : speechReady === null
-                      ? '⏳ Ses servisi kontrol ediliyor...'
-                      : '✅ Kayıt için hazırsınız, başlayabilirsiniz.'}
-                </p>
-              )}
-
-              <div className="status-controls">
-                <button
-                  onClick={isRecording ? stopRecording : startRecording}
-                  disabled={!isRecording && (!mediaReady || speechReady === null)}
-                  className={`btn ${isRecording ? 'btn-danger' : 'btn-primary'}`}
-                >
-                  {isRecording
-                    ? 'Kaydı Durdur'
-                    : !mediaReady
-                      ? 'Model Yükleniyor...'
-                      : speechReady === null
-                        ? 'Servis Kontrol Ediliyor...'
-                        : 'Kaydı Başlat'}
-                </button>
-                <div className="overlay-toggles">
-                  <button
-                    type="button"
-                    onClick={() => setShowOverlay(v => !v)}
-                    className="btn btn-secondary btn-sm"
-                  >
-                    {showOverlay ? 'Overlay Kapat' : 'Overlay Aç'}
-                  </button>
-                  {showOverlay && (
-                    <>
-                      <button type="button" onClick={() => setShowFaceOverlay(v => !v)} className="btn btn-secondary btn-sm">
-                        {showFaceOverlay ? 'Yüz ✓' : 'Yüz'}
-                      </button>
-                      <button type="button" onClick={() => setShowPoseOverlay(v => !v)} className="btn btn-secondary btn-sm">
-                        {showPoseOverlay ? 'Vücut ✓' : 'Vücut'}
-                      </button>
-                    </>
-                  )}
-                </div>
-              </div>
-
-              <div className="status-indicators">
-                <div className="status-row">
-                  <span className="status-label">Görüntü Analizi</span>
-                  <span className={`status-dot ${mediaReady ? 'dot-ok' : 'dot-loading'}`}>
-                    {mediaReady ? '● Aktif' : '◌ Yükleniyor'}
-                  </span>
-                </div>
-                <div className="status-row">
-                  <span className="status-label">Ses Servisi</span>
-                  <span className={`status-dot ${speechReady ? 'dot-ok' : 'dot-warn'}`}>
-                    {speechReady ? '● Hazır' : '◌ Bekleniyor'}
-                  </span>
-                </div>
-                {isRecording && (
-                  <>
-                    <div className="status-row">
-                      <span className="status-label">Göz Teması</span>
-                      <span className="status-value-sm">{eyeContactPercent}%</span>
-                    </div>
-                    <div className="status-row">
-                      <span className="status-label">Duruş</span>
-                      <span className="status-value-sm">{Math.round(currentMetrics.posture)}%</span>
-                    </div>
-                  </>
-                )}
-              </div>
-
-              {llmInsight && (
-                <div className="llm-insight">
-                  <div className="llm-insight-title">AI Analiz — Güven: %{Math.round((llmInsight.confidence || 0) * 100)}</div>
-                  <div className="llm-insight-summary">{llmInsight.summary}</div>
-                  {llmInsight.risks?.length > 0 && <div className="llm-insight-list">⚠ {llmInsight.risks.join(' · ')}</div>}
-                  {llmInsight.suggestions?.length > 0 && <div className="llm-insight-list">💡 {llmInsight.suggestions.join(' · ')}</div>}
-                </div>
-              )}
-            </div>
-
-            <div className="nav-buttons">
-              <button onClick={handleNext} disabled={uploading} className="btn btn-primary">
-                {uploading ? 'Processing...' : currentQuestionIndex < questions.length - 1 ? 'Next Question' : 'Finish'}
+            {/* Overlay kontrolleri — video'nun hemen altında */}
+            <div className="video-overlay-controls">
+              <button
+                type="button"
+                onClick={() => setShowOverlay(v => !v)}
+                className="btn btn-secondary btn-sm"
+              >
+                {showOverlay ? 'Overlay Kapat' : 'Overlay Aç'}
               </button>
+              {showOverlay && (
+                <>
+                  <button type="button" onClick={() => setShowFaceOverlay(v => !v)} className="btn btn-secondary btn-sm">
+                    {showFaceOverlay ? 'Yüz ✓' : 'Yüz'}
+                  </button>
+                  <button type="button" onClick={() => setShowPoseOverlay(v => !v)} className="btn btn-secondary btn-sm">
+                    {showPoseOverlay ? 'Vücut ✓' : 'Vücut'}
+                  </button>
+                </>
+              )}
             </div>
           </div>
+
+        </div>
+
+        {/* ── ALT AKSİYON BARI ── */}
+        <div className="interview-action-bar">
+
+          {/* Kayıt butonu + hazırlık mesajı */}
+          <div className="action-bar-section action-bar-section--main">
+            {!isRecording && (
+              <span className="action-bar-ready">
+                {!mediaReady
+                  ? '⏳ Model yükleniyor...'
+                  : speechReady === null
+                    ? '⏳ Servis kontrol...'
+                    : '✅ Hazır'}
+              </span>
+            )}
+            <button
+              onClick={isRecording ? stopRecording : startRecording}
+              disabled={!isRecording && (!mediaReady || speechReady === null)}
+              className={`btn ${isRecording ? 'btn-danger' : 'btn-primary'}`}
+            >
+              {isRecording
+                ? '⏹ Kaydı Durdur'
+                : !mediaReady
+                  ? 'Model Yükleniyor...'
+                  : speechReady === null
+                    ? 'Servis Kontrol Ediliyor...'
+                    : '⏺ Kaydı Başlat'}
+            </button>
+          </div>
+
+          {/* Servis durum göstergeleri */}
+          <div className="action-bar-section action-bar-section--status">
+            <div className="status-row">
+              <span className="status-label">Görüntü</span>
+              <span className={`status-dot ${mediaReady ? 'dot-ok' : 'dot-loading'}`}>
+                {mediaReady ? '● Aktif' : '◌ Yükleniyor'}
+              </span>
+            </div>
+            <div className="status-row">
+              <span className="status-label">Ses</span>
+              <span className={`status-dot ${speechReady ? 'dot-ok' : 'dot-warn'}`}>
+                {speechReady ? '● Hazır' : '◌ Bekleniyor'}
+              </span>
+            </div>
+            {isRecording && (
+              <>
+                <div className="status-row">
+                  <span className="status-label">Göz Teması</span>
+                  <span className="status-value-sm">{eyeContactPercent}%</span>
+                </div>
+                <div className="status-row">
+                  <span className="status-label">Duruş</span>
+                  <span className="status-value-sm">{Math.round(currentMetrics.posture)}%</span>
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* Navigasyon */}
+          <div className="action-bar-section action-bar-section--nav">
+            <button onClick={handleNext} disabled={uploading} className="btn btn-primary">
+              {uploading
+                ? 'İşleniyor...'
+                : currentQuestionIndex < questions.length - 1
+                  ? 'Sonraki Soru →'
+                  : 'Mülakatı Bitir ✓'}
+            </button>
+          </div>
+
+          {/* AI canlı analiz (varsa alt satır) */}
+          {llmInsight && (
+            <div className="action-bar-insight">
+              <strong>AI Analiz</strong> — {llmInsight.summary}
+              {llmInsight.risks?.length > 0 && <span> · ⚠ {llmInsight.risks[0]}</span>}
+              {llmInsight.suggestions?.length > 0 && <span> · 💡 {llmInsight.suggestions[0]}</span>}
+            </div>
+          )}
+
         </div>
       </div>
 

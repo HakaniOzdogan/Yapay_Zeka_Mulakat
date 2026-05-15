@@ -83,7 +83,7 @@ services:
     restart: unless-stopped
     environment:
       # Model — 'base' is the best speed/quality tradeoff for Turkish
-      MODEL: ${SPEECH_MODEL:-base}
+      MODEL: ${SPEECH_MODEL:-large-v3-turbo}
       # GPU acceleration (falls back to CPU if unavailable)
       SPEECH_DEVICE: ${SPEECH_DEVICE:-cuda}
       SPEECH_COMPUTE_TYPE: ${SPEECH_COMPUTE_TYPE:-int8_float16}

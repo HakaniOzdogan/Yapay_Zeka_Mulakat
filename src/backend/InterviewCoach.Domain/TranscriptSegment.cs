@@ -22,6 +22,9 @@ public class TranscriptSegment
 
     public double? Confidence { get; set; }
 
+    /// <summary>Which question (1-indexed) this segment belongs to.</summary>
+    public int? QuestionOrder { get; set; }
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     
     // Navigation

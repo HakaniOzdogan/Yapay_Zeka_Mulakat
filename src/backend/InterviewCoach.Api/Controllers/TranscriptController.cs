@@ -103,6 +103,7 @@ public class TranscriptController : ControllerBase
                 EndMs = dto.EndMs,
                 Text = (dto.Text ?? string.Empty).Trim(),
                 Confidence = dto.Confidence,
+                QuestionOrder = dto.QuestionOrder,
                 CreatedAt = DateTime.UtcNow
             });
         }
@@ -148,6 +149,9 @@ public class TranscriptSegmentIngestDto
     /// <summary>Optional confidence score from ASR.</summary>
     /// <example>0.92</example>
     public double? Confidence { get; set; }
+
+    /// <summary>1-based order of the question this segment belongs to.</summary>
+    public int? QuestionOrder { get; set; }
 }
 
 public class TranscriptBatchResponse

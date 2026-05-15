@@ -3,8 +3,8 @@ param(
     [switch]$NoBrowser,
     [ValidateSet("auto", "gpu", "cpu")]
     [string]$SpeechProfile = "auto",
-    [ValidateSet("tiny", "small", "medium")]
-    [string]$SpeechModel = "medium",
+    [ValidateSet("tiny", "small", "medium", "large-v3-turbo", "large-v3")]
+    [string]$SpeechModel = "large-v3-turbo",
     [string]$ComposeFile = "docker/docker-compose.yml"
 )
 

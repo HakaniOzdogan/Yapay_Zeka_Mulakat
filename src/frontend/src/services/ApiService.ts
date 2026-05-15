@@ -192,6 +192,7 @@ export interface TranscriptSegmentIngestDto {
   endMs: number
   text: string
   confidence?: number
+  questionOrder?: number
 }
 
 export interface DownloadFileResult {
@@ -496,8 +497,15 @@ class ApiService {
     return response.data
   }
 
-  // Upload raw audio blob for a specific question
-  async uploadQuestionAudio(sessionId: string, questionOrder: number, audioBlob: Blob, mimeType: string): Promise<{ audioUrl: string } | null> {
+  // Upload webcam recording for a specific question
+  async uploadQuestionAudio(
+    sessionId: string,
+    questionOrder: number,
+    audioBlob: Blob,
+    mimeType: string,
+    startMs?: number,
+    endMs?: number
+  ): Promise<{ audioUrl: string } | null> {
     try {
       const ext = mimeType.includes('ogg') ? 'ogg'
         : mimeType.includes('mpeg') ? 'mp3'
@@ -505,14 +513,39 @@ class ApiService {
         : 'webm'
       const formData = new FormData()
       formData.append('file', audioBlob, `q${questionOrder}.${ext}`)
+      if (startMs != null) formData.append('startMs', String(Math.round(startMs)))
+      if (endMs != null) formData.append('endMs', String(Math.round(endMs)))
       const response = await this.client.post(
         `/sessions/${sessionId}/questions/${questionOrder}/audio`,
         formData,
-        { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 60000 }
+        { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 120000 }
       )
       return response.data as { audioUrl: string }
     } catch (err) {
       console.warn('Audio upload failed:', err)
+      return null
+    }
+  }
+
+  // Upload screen recording for a specific question
+  async uploadQuestionScreen(
+    sessionId: string,
+    questionOrder: number,
+    screenBlob: Blob,
+    mimeType: string
+  ): Promise<{ audioUrl: string } | null> {
+    try {
+      const ext = mimeType.includes('mp4') ? 'mp4' : 'webm'
+      const formData = new FormData()
+      formData.append('file', screenBlob, `q${questionOrder}_screen.${ext}`)
+      const response = await this.client.post(
+        `/sessions/${sessionId}/questions/${questionOrder}/screen`,
+        formData,
+        { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 120000 }
+      )
+      return response.data as { audioUrl: string }
+    } catch (err) {
+      console.warn('Screen upload failed:', err)
       return null
     }
   }

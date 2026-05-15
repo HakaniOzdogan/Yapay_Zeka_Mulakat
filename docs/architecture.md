@@ -1,43 +1,128 @@
 # Architecture
 
-This document explains the runtime components, storage model, core payloads, and replay workflow used in this repository.
+Bu belge çalışma zamanı bileşenlerini, depolama modelini, temel veri yapılarını ve hata ayıklama araçlarını açıklar.
 
-## Components
-- Frontend (`src/frontend`)
-  - React + TypeScript + Vite.
-  - Produces metric/transcript ingestion requests and renders reports.
-- Backend (`src/backend/InterviewCoach.Api`)
-  - ASP.NET Core 8 API.
-  - Handles ingestion, finalization, report aggregation, evidence summary, and LLM coaching orchestration.
-- Data (`src/backend/InterviewCoach.Infrastructure`)
-  - EF Core + PostgreSQL.
-  - Stores sessions, events, transcript, scoring outputs.
-- Speech service (`services/speech-service`)
-  - FastAPI service for ASR / streaming transcription.
-- Ollama (`ollama` container)
-  - Optional LLM runtime used by `/api/sessions/{id}/llm/coach`.
+## Bileşenler
 
-## Database Tables (Core)
-- `Sessions`
-- `Questions`
-- `MetricEvents`
-- `TranscriptSegments`
-- `ScoreCards`
-- `FeedbackItems`
+| Bileşen | Konum | Teknoloji |
+|---------|-------|-----------|
+| **Frontend** | `src/frontend` | React 18 + TypeScript + Vite |
+| **Backend API** | `src/backend/InterviewCoach.Api` | ASP.NET Core 8 |
+| **Veritabanı katmanı** | `src/backend/InterviewCoach.Infrastructure` | EF Core + PostgreSQL 16 |
+| **Konuşma servisi** | `services/speech-service` | FastAPI + Faster-Whisper |
+| **LLM (yerel)** | `ollama` container | Ollama (opsiyonel) |
+| **LLM (bulut)** | — | OpenAI API veya Anthropic API |
+| **Stitch AI SDK** | `src/frontend/src/services/StitchService.ts` | @google/stitch-sdk |
 
-## End-to-End Pipeline
-1. Create session: `POST /api/sessions`
-2. Ingest metrics: `POST /api/sessions/{sessionId}/events/batch`
-3. Ingest transcripts: `POST /api/sessions/{sessionId}/transcript/batch`
-4. Finalize: `POST /api/sessions/{sessionId}/finalize`
-5. Consume outputs:
-   - `GET /api/reports/{sessionId}`
-   - `GET /api/sessions/{sessionId}/evidence-summary`
-   - `POST /api/sessions/{sessionId}/llm/coach`
+### Frontend Sayfaları
 
-## Event Schema Examples
+| Sayfa | Rota | Açıklama |
+|-------|------|----------|
+| `Home.tsx` | `/` | Mülakat başlatma, zorluk seçimi |
+| `AuthPage.tsx` | `/auth` | Kayıt ve giriş |
+| `InterviewSession.tsx` | `/interview/:sessionId` | Aktif mülakat (video, soru akışı, model durum paneli) |
+| `Report.tsx` | `/report/:sessionId` | Mülakat raporu, transcript, AI koçluk |
+| `ReportsList.tsx` | `/reports` | Geçmiş mülakat listesi |
+| `AdminPage.tsx` | `/admin` | Kullanıcı yönetimi, toplu koçluk işleri, bekletme yönetimi |
+| `OfflineAnalyze.tsx` | `/offline-analyze` | Kaydedilmiş video dosyasını çevrimdışı analiz et |
 
-### 1) Metric Events Batch (`vision_metrics_v1`)
+### LLM Sağlayıcı Seçimi
+
+Backend birden fazla LLM sağlayıcısını destekler. `appsettings.json` içindeki `Llm__Provider` ile seçilir:
+
+| Sağlayıcı | `Llm__Provider` değeri | Not |
+|-----------|----------------------|-----|
+| OpenAI | `OpenAI` | Varsayılan. `gpt-4o` / `gpt-4o-mini` |
+| Anthropic | `Anthropic` | Claude modelleri |
+| Ollama | `Ollama` | Yerel, internet bağlantısı gerektirmez |
+
+---
+
+## Veritabanı Tabloları (Çekirdek)
+
+| Tablo | Açıklama |
+|-------|----------|
+| `Sessions` | Mülakat oturumları, metadata, durum |
+| `Questions` | Oturuma bağlı sorular ve yanıtları |
+| `MetricEvents` | Ham görüntü metrik olayları (göz teması, duruş vb.) |
+| `TranscriptSegments` | Konuşma-yazı dönüşümü parçaları |
+| `ScoreCards` | Finalize sonrası hesaplanan skorlar |
+| `FeedbackItems` | LLM coaching çıktısı maddeleri |
+
+---
+
+## Kimlik Doğrulama
+
+Sistem JWT Bearer token ile çalışır. Tüm `/api/*` endpoint'leri (sağlık kontrolleri hariç) token gerektirir.
+
+```
+POST /api/auth/register   → { email, password, name } → { token, expiresAt }
+POST /api/auth/login      → { email, password }        → { token, expiresAt }
+```
+
+Token, her istekte `Authorization: Bearer <token>` başlığı olarak gönderilir.
+
+**İlk admin hesabı:** `appsettings.json` veya ortam değişkenleri ile `Auth__SeedAdminEmail` ve `Auth__SeedAdminPassword` doldurulursa başlangıçta admin oluşturulur.
+
+---
+
+## Uçtan Uca Pipeline
+
+```
+1. Oturum oluştur      POST /api/sessions
+2. Metrik aktar         POST /api/sessions/{id}/events/batch        (tekrar tekrar)
+3. Transcript aktar     POST /api/sessions/{id}/transcript/batch    (soru bitişinde)
+4. Finalize             POST /api/sessions/{id}/finalize
+5. Sonuçları tüket:
+     GET  /api/reports/{id}
+     GET  /api/sessions/{id}/evidence-summary
+     POST /api/sessions/{id}/llm/coach
+```
+
+### Video Kaydı
+
+Frontend, `MediaRecorder` API ile `video/webm;codecs=vp8,opus` formatında webcam görüntüsü + sesi kaydeder. Her sorunun yanıtı ayrı bir webm dosyası olarak `POST /api/sessions/{id}/questions/{order}/audio` ile yüklenir. Backend bu dosyayı konuşma servisine iletir ve transkript alır.
+
+### Görüntü Analizi
+
+`MediaPipe Face Mesh` ve `Pose` modelleri, mülakat boyunca sürekli çalışır. Her ~500ms'de bir toplu metrik olayı (`vision_metrics_v1`) backend'e gönderilir.
+
+### Konuşma Servisi
+
+Streaming (WebSocket) ASR kaldırılmıştır. Yalnızca **batch HTTP** transkripsiyon kullanılmaktadır:
+
+```
+POST http://speech-service:8000/transcribe
+Content-Type: multipart/form-data
+Body: audio dosyası (video/webm)
+```
+
+Servis hazırlık durumu için:
+```
+GET http://speech-service:8000/health
+```
+
+---
+
+## Puanlama Profilleri
+
+Finalize aşamasında metrikler, seçilen profile göre ağırlıklandırılarak skora dönüştürülür.
+
+| Profil | Kullanım Alanı | Öne Çıkan Ağırlık |
+|--------|---------------|------------------|
+| `general` | Genel mülakat (varsayılan) | Dengeli |
+| `technical` | Teknik pozisyon | Konuşma hızı + filler sözcük |
+| `hr` | İK / davranışsal | Göz teması + duruş |
+
+Aktif profil `POST /api/sessions/{id}/scoring/profile` ile değiştirilir.
+Tüm profiller `GET /api/scoring/profiles` ile listelenir.
+
+---
+
+## Şema Örnekleri
+
+### 1) Metrik Olayları Toplu Aktarımı (`vision_metrics_v1`)
+
 `POST /api/sessions/{sessionId}/events/batch`
 
 ```json
@@ -59,7 +144,8 @@ This document explains the runtime components, storage model, core payloads, and
 ]
 ```
 
-### 2) Transcript Batch
+### 2) Transcript Toplu Aktarımı
+
 `POST /api/sessions/{sessionId}/transcript/batch`
 
 ```json
@@ -68,13 +154,14 @@ This document explains the runtime components, storage model, core payloads, and
     "clientSegmentId": "22222222-2222-2222-2222-222222222222",
     "startMs": 1200,
     "endMs": 3600,
-    "text": "Hello, I am ready to begin.",
+    "text": "Merhaba, başlamaya hazırım.",
     "confidence": 0.93
   }
 ]
 ```
 
-### 3) Finalize Response (short)
+### 3) Finalize Yanıtı
+
 `POST /api/sessions/{sessionId}/finalize`
 
 ```json
@@ -93,70 +180,84 @@ This document explains the runtime components, storage model, core payloads, and
       "startMs": 5000,
       "endMs": 9000,
       "severity": 3,
-      "evidence": "Frequent filler usage in this range."
+      "evidence": "Bu aralıkta sık dolgu sözcük kullanımı."
     }
   ],
-  "derivedFeatureCount": 0
+  "derivedFeatureCount": 12
 }
 ```
 
-### 4) LLM Coaching JSON Schema (short)
+> `speakingRateScore` ve `fillerScore` transcript verisine dayanır; konuşma servisi devrede değilse bu değerler sıfır olabilir.
+
+### 4) LLM Koçluk Şeması
+
 `POST /api/sessions/{sessionId}/llm/coach`
 
 ```json
 {
   "rubric": {
-    "technical_correctness": 0,
-    "depth": 0,
-    "structure": 0,
-    "clarity": 0,
-    "confidence": 0
+    "technical_correctness": 72,
+    "depth": 65,
+    "structure": 80,
+    "clarity": 78,
+    "confidence": 70
   },
-  "overall": 0,
+  "overall": 73,
   "feedback": [
     {
       "category": "vision",
-      "severity": 1,
-      "title": "string",
-      "evidence": "string",
-      "time_range_ms": [0, 0],
-      "suggestion": "string",
-      "example_phrase": "string"
+      "severity": 2,
+      "title": "Göz teması zayıf",
+      "evidence": "Yanıt süresinin %38'inde kameraya bakılmadı.",
+      "time_range_ms": [5000, 9000],
+      "suggestion": "Cevap verirken kameraya odaklanmayı deneyin.",
+      "example_phrase": "Kameraya bakarken 'Bu konuda şunu düşünüyorum...' diyebilirsiniz."
     }
   ],
   "drills": [
     {
-      "title": "string",
-      "steps": ["string"],
+      "title": "Göz teması egzersizi",
+      "steps": ["Aynaya bakarak 2 dakika konuşun", "Kayıt alarak izleyin"],
       "duration_min": 5
     }
   ]
 }
 ```
 
-## Session Replay (Debug/QA)
-Replay endpoints are used to reproduce sessions deterministically and validate pipelines.
+---
 
-### Export
+## Oturum Tekrar Oynatma (Debug / QA)
+
+Replay endpoint'leri, oturumları deterministik olarak yeniden çalıştırmak ve pipeline çıktılarını karşılaştırmak için kullanılır.
+
+> **Not:** Import ve Run endpoint'leri `AdminOnly` policy gerektirir. İsteklerde `Authorization: Bearer <admin-token>` başlığı zorunludur.
+
+### Dışa Aktar
 ```bash
-curl http://localhost:8080/api/sessions/<sessionId>/replay/export
+curl -H "Authorization: Bearer <token>" \
+  http://localhost:8080/api/sessions/<sessionId>/replay/export \
+  -o replay.json
 ```
 
-### Import
+### İçe Aktar (Admin)
 ```bash
-curl -X POST http://localhost:8080/api/sessions/replay/import \
+curl -X POST \
+  -H "Authorization: Bearer <admin-token>" \
   -H "Content-Type: application/json" \
-  --data @replay.json
+  --data @replay.json \
+  http://localhost:8080/api/sessions/replay/import
 ```
 
-### Run Replay (Finalize Imported Session)
+### Tekrar Oynat (Admin)
 ```bash
-curl -X POST http://localhost:8080/api/sessions/<newSessionId>/replay/run \
+curl -X POST \
+  -H "Authorization: Bearer <admin-token>" \
   -H "Content-Type: application/json" \
-  -d '{"speed":1.0}'
+  -d '{"speed":1.0}' \
+  http://localhost:8080/api/sessions/<newSessionId>/replay/run
 ```
 
-### Typical Use Cases
-- Reproduce a bug with exact event/transcript inputs.
-- Compare scoring/coaching output before and after backend changes.
-- Build deterministic QA fixtures for regression testing.
+### Tipik Kullanım Senaryoları
+- Tam olay + transcript girdisiyle bir hatayı yeniden üret.
+- Backend değişikliklerinden önce ve sonra skorlama/koçluk çıktılarını karşılaştır.
+- Regresyon testi için deterministik QA fixture'ları oluştur.

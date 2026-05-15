@@ -7,6 +7,9 @@ import ApiService, {
 } from '../services/ApiService'
 import { triggerBlobDownload } from '../utils/download'
 import { TranscriptModal } from '../components/TranscriptModal'
+import {
+  LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend
+} from 'recharts'
 import '../styles/pages.css'
 
 interface ScoreMetric {
@@ -22,12 +25,29 @@ interface ScoreCompareField {
   fallbackKey: 'eyeContact' | 'speakingRate' | 'fillerWords' | 'posture' | 'overall'
 }
 
+interface DerivedPoint {
+  windowStartMs: number
+  windowEndMs: number
+  value: number
+}
+
+interface TranscriptLine {
+  startMs: number
+  endMs: number
+  text: string
+}
+
 interface ReportQuestion {
   id: string
   order: number
   prompt: string
   audioUrl?: string | null
+  screenAudioUrl?: string | null
+  startMs?: number | null
+  endMs?: number | null
   createdAt?: string
+  transcript?: TranscriptLine[]
+  metrics?: Record<string, DerivedPoint[]>
 }
 
 const SCORE_COMPARE_FIELDS: ScoreCompareField[] = [
@@ -541,32 +561,107 @@ function Report() {
           {questions.length > 0 ? (
             <div className="question-audio-list">
               {questions.map((question) => {
-                const audioSrc = resolveAudioUrl(question.audioUrl)
+                const webcamSrc = resolveAudioUrl(question.audioUrl)
+                const screenSrc = resolveAudioUrl(question.screenAudioUrl)
+                const qTranscript = Array.isArray(question.transcript) ? question.transcript : []
+                const qMetrics = question.metrics ?? {}
+
+                // Build chart data: merge all metric keys by time
+                const chartData = (() => {
+                  const keys = ['eyeContact', 'posture', 'fidget', 'headJitter'] as const
+                  const timeMap = new Map<number, Record<string, number>>()
+                  keys.forEach(key => {
+                    ;(qMetrics[key] ?? []).forEach((pt: DerivedPoint) => {
+                      if (!timeMap.has(pt.windowStartMs)) timeMap.set(pt.windowStartMs, { t: pt.windowStartMs })
+                      timeMap.get(pt.windowStartMs)![key] = Math.round(pt.value * 100)
+                    })
+                  })
+                  return Array.from(timeMap.values()).sort((a, b) => a.t - b.t)
+                })()
+
+                const hasMetrics = chartData.length > 0
+
                 return (
                   <div key={question.id || question.order} className="interview-qa-card" data-testid={`question-audio-card-${question.order}`}>
                     <div className="interview-qa-header">
                       <span className="interview-qa-num">Soru {question.order}</span>
+                      {question.startMs != null && question.endMs != null && (
+                        <span className="interview-qa-duration">
+                          {formatMs(question.startMs)} – {formatMs(question.endMs)}
+                        </span>
+                      )}
                     </div>
                     <div className="interview-qa-prompt">{question.prompt}</div>
+
+                    {/* ── Video + Metrik Satırı ── */}
                     <div className="interview-qa-body">
-                      <div className="interview-qa-video">
-                        {audioSrc ? (
-                          <video
-                            controls
-                            preload="metadata"
-                            src={audioSrc}
-                            style={{ width: '100%', borderRadius: 12, backgroundColor: '#000', maxHeight: 320 }}
-                            data-testid={`question-audio-player-${question.order}`}
-                          >
-                            Tarayıcınız video oynatmayı desteklemiyor.
-                          </video>
-                        ) : (
-                          <div className="interview-qa-no-video" data-testid={`question-audio-empty-${question.order}`}>
-                            <span>📹</span>
-                            <p>Kayıt bulunamadı</p>
+                      <div className={`interview-qa-videos${screenSrc ? ' interview-qa-videos--dual' : ''}`}>
+                        {/* Webcam */}
+                        <div className="interview-qa-video-block">
+                          <div className="interview-qa-video-label">Webcam</div>
+                          {webcamSrc ? (
+                            <video controls preload="metadata" src={webcamSrc}
+                              className="interview-qa-video-el"
+                              data-testid={`question-audio-player-${question.order}`}>
+                              Tarayıcınız video oynatmayı desteklemiyor.
+                            </video>
+                          ) : (
+                            <div className="interview-qa-no-video">
+                              <span>📹</span><p>Kayıt bulunamadı</p>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Ekran kaydı (opsiyonel) */}
+                        {screenSrc && (
+                          <div className="interview-qa-video-block">
+                            <div className="interview-qa-video-label">Ekran</div>
+                            <video controls preload="metadata" src={screenSrc}
+                              className="interview-qa-video-el">
+                              Tarayıcınız video oynatmayı desteklemiyor.
+                            </video>
+                          </div>
+                        )}
+
+                        {/* Metrik grafiği */}
+                        {hasMetrics && (
+                          <div className="interview-qa-metrics">
+                            <div className="interview-qa-video-label">Metrikler</div>
+                            <ResponsiveContainer width="100%" height={180}>
+                              <LineChart data={chartData} margin={{ top: 4, right: 8, left: -24, bottom: 0 }}>
+                                <XAxis dataKey="t" hide />
+                                <YAxis domain={[0, 100]} tickCount={3} tick={{ fontSize: 10, fill: '#888' }} />
+                                <Tooltip
+                                  contentStyle={{ background: '#1a1b2e', border: '1px solid #333', borderRadius: 8, fontSize: 12 }}
+                                  formatter={(v: any, name: any) => [`${v}%`, name]}
+                                  labelFormatter={() => ''}
+                                />
+                                <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11 }} />
+                                <Line type="monotone" dataKey="eyeContact" name="Göz Teması" stroke="#7c83ff" dot={false} strokeWidth={2} />
+                                <Line type="monotone" dataKey="posture" name="Duruş" stroke="#4caf50" dot={false} strokeWidth={2} />
+                                <Line type="monotone" dataKey="fidget" name="Kıpırdama" stroke="#ff9800" dot={false} strokeWidth={1.5} />
+                              </LineChart>
+                            </ResponsiveContainer>
                           </div>
                         )}
                       </div>
+
+                      {/* ── Per-soru transkript ── */}
+                      {qTranscript.length > 0 && (
+                        <div className="interview-qa-transcript">
+                          <div className="interview-qa-transcript-header">
+                            <span>📄</span> Transkript
+                          </div>
+                          <div className="interview-qa-transcript-body">
+                            {qTranscript.map((seg, i) => (
+                              <div key={i} className="transcript-segment-row">
+                                <span className="transcript-timestamp">{formatMs(seg.startMs)}</span>
+                                <span className="transcript-text">{seg.text}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
                 )

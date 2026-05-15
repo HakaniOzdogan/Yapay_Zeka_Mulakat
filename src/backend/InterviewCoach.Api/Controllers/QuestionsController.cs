@@ -98,15 +98,18 @@ public class QuestionsController : ControllerBase
     }
 
     /// <summary>
-    /// Uploads the audio recording for a specific question (by 1-based order index).
+    /// Uploads the webcam recording for a specific question (by 1-based order index).
+    /// Optionally accepts startMs and endMs (milliseconds from session start) for per-question metric windowing.
     /// </summary>
     [Authorize]
     [HttpPost("{questionOrder:int}/audio")]
-    [RequestSizeLimit(50 * 1024 * 1024)] // 50 MB max
+    [RequestSizeLimit(200 * 1024 * 1024)] // 200 MB max
     public async Task<ActionResult<QuestionAudioUploadResponse>> UploadQuestionAudio(
         Guid sessionId,
         int questionOrder,
         IFormFile file,
+        [FromForm] long? startMs,
+        [FromForm] long? endMs,
         CancellationToken cancellationToken)
     {
         var question = await _db.Questions
@@ -118,7 +121,6 @@ public class QuestionsController : ControllerBase
         if (file == null || file.Length == 0)
             return BadRequest(new { error = "Audio file is empty." });
 
-        // Store the audio file in /app/audio/{sessionId}/ inside the container
         var audioDir = Path.Combine("audio", sessionId.ToString());
         Directory.CreateDirectory(audioDir);
 
@@ -132,12 +134,54 @@ public class QuestionsController : ControllerBase
             await file.CopyToAsync(stream, cancellationToken);
         }
 
-        // Store the relative URL so the client can fetch via /audio/{sessionId}/q{n}.webm
         var audioUrl = $"/audio/{sessionId}/{fileName}";
         question.AudioUrl = audioUrl;
+        if (startMs.HasValue) question.StartMs = startMs;
+        if (endMs.HasValue) question.EndMs = endMs;
         await _db.SaveChangesAsync(cancellationToken);
 
         return Ok(new QuestionAudioUploadResponse { AudioUrl = audioUrl });
+    }
+
+    /// <summary>
+    /// Uploads the screen recording for a specific question.
+    /// </summary>
+    [Authorize]
+    [HttpPost("{questionOrder:int}/screen")]
+    [RequestSizeLimit(500 * 1024 * 1024)] // 500 MB max
+    public async Task<ActionResult<QuestionAudioUploadResponse>> UploadQuestionScreen(
+        Guid sessionId,
+        int questionOrder,
+        IFormFile file,
+        CancellationToken cancellationToken)
+    {
+        var question = await _db.Questions
+            .FirstOrDefaultAsync(q => q.SessionId == sessionId && q.Order == questionOrder, cancellationToken);
+
+        if (question == null)
+            return NotFound(new { error = $"Question with order {questionOrder} not found for session {sessionId}." });
+
+        if (file == null || file.Length == 0)
+            return BadRequest(new { error = "Screen recording file is empty." });
+
+        var audioDir = Path.Combine("audio", sessionId.ToString());
+        Directory.CreateDirectory(audioDir);
+
+        var ext = Path.GetExtension(file.FileName);
+        if (string.IsNullOrWhiteSpace(ext)) ext = ".webm";
+        var fileName = $"q{questionOrder}_screen{ext}";
+        var filePath = Path.Combine(audioDir, fileName);
+
+        await using (var stream = System.IO.File.Create(filePath))
+        {
+            await file.CopyToAsync(stream, cancellationToken);
+        }
+
+        var screenUrl = $"/audio/{sessionId}/{fileName}";
+        question.ScreenAudioUrl = screenUrl;
+        await _db.SaveChangesAsync(cancellationToken);
+
+        return Ok(new QuestionAudioUploadResponse { AudioUrl = screenUrl });
     }
 
     private QuestionDto ToDto(Question q)

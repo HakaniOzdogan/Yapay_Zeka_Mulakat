@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Text.Json.Serialization;
 using InterviewCoach.Infrastructure;
 using Microsoft.AspNetCore.Authorization;
@@ -18,9 +19,6 @@ public class ReportsController : ControllerBase
         "posture",
         "fidget",
         "headJitter",
-        "wpm",
-        "filler",
-        "pauseMs"
     ];
 
     private readonly ApplicationDbContext _db;
@@ -30,16 +28,10 @@ public class ReportsController : ControllerBase
         _db = db;
     }
 
-    /// <summary>
-    /// Returns the aggregated report for a session.
-    /// </summary>
     [HttpGet("{sessionId:guid}")]
     [SessionOwnership]
     [ProducesResponseType(typeof(ReportDto), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
-    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status413PayloadTooLarge)]
-    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status429TooManyRequests)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
     public async Task<ActionResult<ReportDto>> GetReport(Guid sessionId, CancellationToken cancellationToken)
     {
@@ -89,35 +81,141 @@ public class ReportsController : ControllerBase
             })
             .ToListAsync(cancellationToken);
 
-        var questions = await _db.Questions
+        // Load all questions with their timing info
+        var questionEntities = await _db.Questions
             .AsNoTracking()
             .Where(q => q.SessionId == sessionId)
             .OrderBy(q => q.Order)
-            .Select(q => new ReportQuestionDto
+            .ToListAsync(cancellationToken);
+
+        // Load all transcript segments for this session
+        var allTranscript = await _db.TranscriptSegments
+            .AsNoTracking()
+            .Where(s => s.SessionId == sessionId)
+            .OrderBy(s => s.StartMs)
+            .Select(s => new { s.StartMs, s.EndMs, s.Text, s.QuestionOrder })
+            .ToListAsync(cancellationToken);
+
+        // Load all metric events for per-question windowing
+        var allMetrics = await _db.MetricEvents
+            .AsNoTracking()
+            .Where(e => e.SessionId == sessionId && e.Type == "vision_metrics_v1")
+            .OrderBy(e => e.TsMs)
+            .Select(e => new { e.TsMs, e.PayloadJson })
+            .ToListAsync(cancellationToken);
+
+        // Build per-question data
+        var questions = new List<ReportQuestionDto>();
+        for (int i = 0; i < questionEntities.Count; i++)
+        {
+            var q = questionEntities[i];
+
+            // Per-question transcript: prefer QuestionOrder match, fall back to time window
+            List<TranscriptLineDto> qTranscript;
+            var byOrder = allTranscript
+                .Where(s => s.QuestionOrder == q.Order)
+                .Select(s => new TranscriptLineDto { StartMs = s.StartMs, EndMs = s.EndMs, Text = s.Text })
+                .ToList();
+
+            if (byOrder.Count > 0)
+            {
+                qTranscript = byOrder;
+            }
+            else if (q.StartMs.HasValue)
+            {
+                // Fallback: time-window based (for sessions recorded before QuestionOrder was tracked)
+                var endBound = q.EndMs ?? (i + 1 < questionEntities.Count ? questionEntities[i + 1].StartMs : long.MaxValue);
+                qTranscript = allTranscript
+                    .Where(s => s.StartMs >= q.StartMs.Value && s.StartMs < (endBound ?? long.MaxValue))
+                    .Select(s => new TranscriptLineDto { StartMs = s.StartMs, EndMs = s.EndMs, Text = s.Text })
+                    .ToList();
+            }
+            else
+            {
+                qTranscript = [];
+            }
+
+            // Per-question metrics time series
+            var qMetrics = new Dictionary<string, List<DerivedPointDto>>();
+            foreach (var key in DerivedKeys)
+                qMetrics[key] = [];
+
+            if (q.StartMs.HasValue && allMetrics.Count > 0)
+            {
+                var endBound = q.EndMs
+                    ?? (i + 1 < questionEntities.Count ? questionEntities[i + 1].StartMs : null);
+
+                var windowEvents = allMetrics
+                    .Where(e => e.TsMs >= q.StartMs.Value
+                             && (endBound == null || e.TsMs <= endBound.Value))
+                    .ToList();
+
+                foreach (var ev in windowEvents)
+                {
+                    try
+                    {
+                        using var doc = JsonDocument.Parse(ev.PayloadJson);
+                        var root = doc.RootElement;
+                        foreach (var key in DerivedKeys)
+                        {
+                            if (root.TryGetProperty(key, out var val) && val.ValueKind == JsonValueKind.Number)
+                            {
+                                qMetrics[key].Add(new DerivedPointDto
+                                {
+                                    WindowStartMs = ev.TsMs,
+                                    WindowEndMs = ev.TsMs + 500,
+                                    Value = val.GetDouble()
+                                });
+                            }
+                        }
+                    }
+                    catch { /* malformed JSON — skip */ }
+                }
+            }
+
+            questions.Add(new ReportQuestionDto
             {
                 Id = q.Id,
                 Order = q.Order,
                 Prompt = q.Prompt,
                 AudioUrl = q.AudioUrl,
-                CreatedAt = q.CreatedAt
-            })
-            .ToListAsync(cancellationToken);
+                ScreenAudioUrl = q.ScreenAudioUrl,
+                StartMs = q.StartMs,
+                EndMs = q.EndMs,
+                CreatedAt = q.CreatedAt,
+                Transcript = qTranscript,
+                Metrics = qMetrics
+            });
+        }
 
-        var transcriptLines = await _db.TranscriptSegments
-            .AsNoTracking()
-            .Where(s => s.SessionId == sessionId)
-            .OrderBy(s => s.StartMs)
-            .Select(s => new TranscriptLineDto
+        // Session-level transcript (all segments, no filter)
+        var transcriptLines = allTranscript
+            .Select(s => new TranscriptLineDto { StartMs = s.StartMs, EndMs = s.EndMs, Text = s.Text })
+            .ToList();
+
+        // Session-level derived series (full session)
+        var derivedSeries = DerivedKeys.ToDictionary(key => key, _ => new List<DerivedPointDto>());
+        foreach (var ev in allMetrics)
+        {
+            try
             {
-                StartMs = s.StartMs,
-                EndMs = s.EndMs,
-                Text = s.Text
-            })
-            .ToListAsync(cancellationToken);
-
-        var derivedSeries = DerivedKeys.ToDictionary(
-            key => key,
-            _ => new List<DerivedPointDto>());
+                using var doc = JsonDocument.Parse(ev.PayloadJson);
+                var root = doc.RootElement;
+                foreach (var key in DerivedKeys)
+                {
+                    if (root.TryGetProperty(key, out var val) && val.ValueKind == JsonValueKind.Number)
+                    {
+                        derivedSeries[key].Add(new DerivedPointDto
+                        {
+                            WindowStartMs = ev.TsMs,
+                            WindowEndMs = ev.TsMs + 500,
+                            Value = val.GetDouble()
+                        });
+                    }
+                }
+            }
+            catch { /* malformed JSON — skip */ }
+        }
 
         var report = new ReportDto
         {
@@ -136,25 +234,12 @@ public class ReportsController : ControllerBase
 
 public class ReportDto
 {
-    /// <summary>Session metadata.</summary>
     public SessionInfoDto Session { get; set; } = new();
-
-    /// <summary>Computed scorecard values if available.</summary>
     public ScoreCardReadDto? ScoreCard { get; set; }
-
-    /// <summary>Detected pattern hits.</summary>
     public List<PatternDto> Patterns { get; set; } = [];
-
-    /// <summary>Ordered questions and their answer audio URLs when available.</summary>
     public List<ReportQuestionDto> Questions { get; set; } = [];
-
-    /// <summary>Derived metric time series grouped by metric type.</summary>
     public Dictionary<string, List<DerivedPointDto>> DerivedSeries { get; set; } = [];
-
-    /// <summary>Ordered transcript lines.</summary>
     public List<TranscriptLineDto> Transcript { get; set; } = [];
-
-    /// <summary>Explains why transcript data may be unavailable.</summary>
     public string? TranscriptNotice { get; set; }
 }
 
@@ -197,7 +282,18 @@ public class ReportQuestionDto
     [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
     public string? AudioUrl { get; set; }
 
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public string? ScreenAudioUrl { get; set; }
+
+    public long? StartMs { get; set; }
+    public long? EndMs { get; set; }
     public DateTime CreatedAt { get; set; }
+
+    /// <summary>Transcript segments belonging to this question.</summary>
+    public List<TranscriptLineDto> Transcript { get; set; } = [];
+
+    /// <summary>Per-question metric time series (eyeContact, posture, fidget, headJitter).</summary>
+    public Dictionary<string, List<DerivedPointDto>> Metrics { get; set; } = [];
 }
 
 public class DerivedPointDto
