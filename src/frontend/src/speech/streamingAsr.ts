@@ -1,6 +1,6 @@
 /**
- * Speech service sağlık kontrol yardımcıları.
- * WebSocket streaming kaldırıldı — yalnızca batch HTTP transkripsiyon kullanılmaktadır.
+ * Speech service health check helpers.
+ * WebSocket streaming removed — batch HTTP transcription only.
  */
 
 export type SpeechReadinessReason =
@@ -69,10 +69,10 @@ export async function getStreamingAsrReadiness(baseUrl: string): Promise<Streami
   try {
     const healthRes = await fetch(`${root}/health`, { method: 'GET', cache: 'no-store' })
     if (!healthRes.ok) {
-      return { ready: false, reachable: false, reason: 'unreachable', message: 'Ses servisine ulaşılamıyor.' }
+      return { ready: false, reachable: false, reason: 'unreachable', message: 'Speech service unreachable.' }
     }
   } catch {
-    return { ready: false, reachable: false, reason: 'unreachable', message: 'Ses servisine ulaşılamıyor.' }
+    return { ready: false, reachable: false, reason: 'unreachable', message: 'Speech service unreachable.' }
   }
 
   try {
@@ -99,48 +99,48 @@ export async function getStreamingAsrReadiness(baseUrl: string): Promise<Streami
         : 'model_loading'
 
       const message =
-        reason === 'startup_failed' ? (details.failureDetail || 'Ses modeli başlatılamadı.')
-        : reason === 'at_capacity' ? 'Ses servisi kapasitede.'
-        : 'Ses modeli yükleniyor, lütfen bekleyin.'
+        reason === 'startup_failed' ? (details.failureDetail || 'Speech model failed to initialize.')
+        : reason === 'at_capacity' ? 'Speech service at capacity.'
+        : 'Speech model loading, please wait.'
 
       return { ready: false, reachable: true, reason, message, details }
     }
 
-    return { ready: false, reachable: true, reason: 'startup_failed', message: `Ses servisi hazırlık kontrolü başarısız (${res.status}).`, details }
+    return { ready: false, reachable: true, reason: 'startup_failed', message: `Speech service readiness check failed (${res.status}).`, details }
   } catch {
-    return { ready: false, reachable: true, reason: 'model_loading', message: 'Ses modeli yükleniyor, lütfen bekleyin.' }
+    return { ready: false, reachable: true, reason: 'model_loading', message: 'Speech model loading, please wait.' }
   }
 }
 
 export function getSpeechReadinessMessage(reason: SpeechReadinessReason, detail?: string | null): string | null {
   switch (reason) {
     case 'ready': return null
-    case 'model_loading': return 'Ses modeli yükleniyor, lütfen bekleyin.'
-    case 'at_capacity': return 'Ses servisi kapasitede.'
-    case 'unreachable': return 'Ses servisine ulaşılamıyor.'
-    case 'startup_failed': return detail || 'Ses modeli başlatılamadı.'
-    default: return 'Ses servisi hazır değil.'
+    case 'model_loading': return 'Speech model loading, please wait.'
+    case 'at_capacity': return 'Speech service at capacity.'
+    case 'unreachable': return 'Speech service unreachable.'
+    case 'startup_failed': return detail || 'Speech model failed to initialize.'
+    default: return 'Speech service not ready.'
   }
 }
 
 export function getSpeechRetryNotice(reason: SpeechReadinessReason): string | null {
   switch (reason) {
     case 'ready': return null
-    case 'model_loading': return 'Ses modeli yükleniyor...'
-    case 'at_capacity': return 'Ses servisi kapasitede, lütfen bekleyin.'
-    case 'unreachable': return 'Ses servisine ulaşılamıyor.'
-    case 'startup_failed': return 'Ses modeli başlatılamadı.'
+    case 'model_loading': return 'Loading speech model...'
+    case 'at_capacity': return 'Speech service at capacity, please wait.'
+    case 'unreachable': return 'Speech service unreachable.'
+    case 'startup_failed': return 'Speech model failed to initialize.'
     default: return null
   }
 }
 
 export function getSpeechModelLabel(ready: boolean | null, reason: SpeechReadinessReason | null): string {
-  if (ready === true || reason === 'ready') return 'Hazır'
-  if (reason === 'startup_failed') return 'Başlatma hatası'
-  if (reason === 'at_capacity') return 'Dolu'
-  if (reason === 'unreachable') return 'Ulaşılamıyor'
-  if (reason === 'model_loading' || ready === false) return 'Yükleniyor'
-  return 'Kontrol ediliyor...'
+  if (ready === true || reason === 'ready') return 'Ready'
+  if (reason === 'startup_failed') return 'Init error'
+  if (reason === 'at_capacity') return 'Full'
+  if (reason === 'unreachable') return 'Unreachable'
+  if (reason === 'model_loading' || ready === false) return 'Loading'
+  return 'Checking...'
 }
 
 export async function fetchSpeechDiagnostics(baseUrl: string): Promise<SpeechDiagnostics | null> {

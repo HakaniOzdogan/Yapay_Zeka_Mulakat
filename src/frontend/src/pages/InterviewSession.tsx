@@ -307,7 +307,7 @@ function InterviewSession() {
       }
       questionStartMsRef.current = Math.round(performance.now() - trueSessionStartMsRef.current)
 
-      // Her soru için ekran paylaşım izni iste
+      // Request screen share permission for every question
       try {
         const screenStream = await navigator.mediaDevices.getDisplayMedia({
           video: { frameRate: { ideal: 15 } },
@@ -318,7 +318,7 @@ function InterviewSession() {
           screenStreamRef.current = null
         })
       } catch {
-        // Kullanıcı izin vermedi — sadece webcam ile devam et
+        // Permission denied — continue with webcam only
         screenStreamRef.current = null
       }
 
@@ -714,9 +714,9 @@ function InterviewSession() {
 
     if (recordedChunks.length === 0) {
       const isLastQuestion = currentQuestionIndex >= questions.length - 1
-      const label = isLastQuestion ? 'mülakatı bitirmek' : 'sonraki soruya geçmek'
+      const label = isLastQuestion ? 'finish the interview' : 'move to the next question'
       const confirmed = window.confirm(
-        `Soru ${questionOrder} için video kaydı bulunamadı.\nKayıt yapmadan ${label} istediğinizden emin misiniz?`
+        `No video recording found for Question ${questionOrder}.\nAre you sure you want to ${label} without recording?`
       )
       if (!confirmed) return
     }
@@ -771,7 +771,7 @@ function InterviewSession() {
 
   const handleAbortClick = () => {
     const confirmed = window.confirm(
-      'Mülakatı durdurmak istediğinizden emin misiniz? Kaydedilmemiş ilerlemeniz kaybolacak.'
+      'Are you sure you want to stop the interview? Unsaved progress will be lost.'
     )
     if (!confirmed) return
     void stopRecording()
@@ -799,25 +799,25 @@ function InterviewSession() {
   const formattedElapsed = `${Math.floor(sessionElapsedSeconds / 60).toString().padStart(2, '0')}:${(sessionElapsedSeconds % 60).toString().padStart(2, '0')}`
   const eyeContactPercent = Math.round(currentMetrics.eyeContact)
   const pacePercent = Math.round(currentMetrics.headStability)
-  const sentimentLabel = llmInsight?.summary || `${behaviorStats.currentEmotion} anlatim`
+  const sentimentLabel = llmInsight?.summary || `${behaviorStats.currentEmotion} delivery`
 
   return (
     <div className="page interview-page session-page">
       <div className="session-shell">
         <div className="session-header">
           <div>
-            <span className="eyebrow">Canli AI Interview</span>
+            <span className="eyebrow">Live AI Interview</span>
             <h1 style={{ marginBottom: 0 }}>{session.selectedRole}</h1>
           </div>
           <div className="session-header-meta">
-            <span className="status-pill">{isRecording ? 'Canli oturum' : 'Hazir'}</span>
+            <span className="status-pill">{isRecording ? 'Live session' : 'Ready'}</span>
             <span className="session-timer">{formattedElapsed}</span>
             <button
               type="button"
               className="btn btn-sm btn-danger"
               onClick={handleAbortClick}
             >
-              ✕ Durdur
+              ✕ Stop
             </button>
           </div>
         </div>
@@ -825,12 +825,12 @@ function InterviewSession() {
         <div className="interview-layout">
           <div className="question-column">
             <section className="question-card">
-              <div className="question-meta">Soru {currentQuestionIndex + 1} / {questions.length || 1}</div>
+              <div className="question-meta">Question {currentQuestionIndex + 1} / {questions.length || 1}</div>
               {currentQuestion && <h2>{currentQuestion.prompt}</h2>}
               <div className="question-tags">
                 <span className="tag">{session.selectedRole || 'Interview'}</span>
                 <span className="tag">{session.language === 'en' ? 'English' : 'Turkish'}</span>
-                <span className="tag">{isRecording ? 'Live feedback' : 'Waiting to start'}</span>
+                <span className="tag">{isRecording ? 'Live Feedback' : 'Waiting to Start'}</span>
               </div>
             </section>
           </div>
@@ -838,10 +838,10 @@ function InterviewSession() {
           {/* ── ORTA: Video ── */}
           <div className="video-column">
             <div className="video-stage-wrap">
-              <div className="video-chip">Kayıt aktif</div>
+              <div className="video-chip">Recording active</div>
               <div className="video-badge">AI</div>
               <div className="video-stage">
-                <div className="mechanical-clock" title={clockNow.toLocaleTimeString('tr-TR')}>
+                <div className="mechanical-clock" title={clockNow.toLocaleTimeString('en-US')}>
                   <span className="clock-center" />
                   <span className="clock-hand hour" style={{ transform: `translateX(-50%) rotate(${mechanicalClock.hrDeg}deg)` }} />
                   <span className="clock-hand minute" style={{ transform: `translateX(-50%) rotate(${mechanicalClock.minDeg}deg)` }} />
@@ -862,7 +862,7 @@ function InterviewSession() {
                 )}
                 {isRecording && !mediaReady && (
                   <div className="camera-placeholder">
-                    <p>Vision modeli hazir degil. Audio transcript bu sirada calismaya devam edebilir.</p>
+                    <p>Vision model not ready. Audio recording can continue in the meantime.</p>
                   </div>
                 )}
                 {VISION_DEBUG_OVERLAY && isRecording && (
@@ -892,28 +892,28 @@ function InterviewSession() {
                 )}
                 {!isRecording && (
                   <div className="camera-placeholder">
-                    <p>Start Recording ile kamera ve mikrofonu baslatin.</p>
+                    <p>Click Start Recording to activate camera and microphone.</p>
                   </div>
                 )}
               </div>
             </div>
 
-            {/* Overlay kontrolleri — video'nun hemen altında */}
+            {/* Overlay controls — directly below video */}
             <div className="video-overlay-controls">
               <button
                 type="button"
                 onClick={() => setShowOverlay(v => !v)}
                 className="btn btn-secondary btn-sm"
               >
-                {showOverlay ? 'Overlay Kapat' : 'Overlay Aç'}
+                {showOverlay ? 'Hide Overlay' : 'Show Overlay'}
               </button>
               {showOverlay && (
                 <>
                   <button type="button" onClick={() => setShowFaceOverlay(v => !v)} className="btn btn-secondary btn-sm">
-                    {showFaceOverlay ? 'Yüz ✓' : 'Yüz'}
+                    {showFaceOverlay ? 'Face ✓' : 'Face'}
                   </button>
                   <button type="button" onClick={() => setShowPoseOverlay(v => !v)} className="btn btn-secondary btn-sm">
-                    {showPoseOverlay ? 'Vücut ✓' : 'Vücut'}
+                    {showPoseOverlay ? 'Body ✓' : 'Body'}
                   </button>
                 </>
               )}
@@ -922,35 +922,35 @@ function InterviewSession() {
 
         </div>
 
-        {/* ── AI ANALİZ — tam genişlik ── */}
+        {/* ── AI ANALYSIS — full width ── */}
         <section className="analysis-card analysis-card--wide">
           <div className="eyebrow" style={{ marginBottom: 12 }}>AI Assistant Analysis</div>
           <div className="analysis-grid analysis-grid--3col">
             <div className="analysis-mini">
               <div className="analysis-mini-header">
-                <span>Goz temasi</span>
+                <span>Eye Contact</span>
                 <span>{eyeContactPercent}%</span>
               </div>
               <div className="analysis-track">
                 <div className="analysis-fill primary" style={{ width: `${Math.max(0, Math.min(100, eyeContactPercent))}%` }} />
               </div>
-              <div className="live-transcript-line">Kamera odagi ve bakis hizasi bu kartta ozetlenir.</div>
+              <div className="live-transcript-line">Camera focus and gaze direction are summarized here.</div>
             </div>
 
             <div className="analysis-mini">
               <div className="analysis-mini-header">
-                <span>Stabil anlatim</span>
+                <span>Stable Delivery</span>
                 <span>{pacePercent}%</span>
               </div>
               <div className="analysis-track">
                 <div className="analysis-fill secondary" style={{ width: `${Math.max(0, Math.min(100, pacePercent))}%` }} />
               </div>
-              <div className="live-transcript-line">Ses temposu ve kafa hareketi akisinin dengesi.</div>
+              <div className="live-transcript-line">Balance of speech tempo and head movement.</div>
             </div>
 
             <div className="analysis-mini">
               <div className="analysis-mini-header">
-                <span>Anlik yorum</span>
+                <span>Live Insight</span>
                 <span>{behaviorStats.dominantEmotion}</span>
               </div>
               <div className="live-transcript-line">{sentimentLabel}</div>
@@ -958,18 +958,18 @@ function InterviewSession() {
           </div>
         </section>
 
-        {/* ── ALT AKSİYON BARI ── */}
+        {/* ── BOTTOM ACTION BAR ── */}
         <div className="interview-action-bar">
 
-          {/* Kayıt butonu + hazırlık mesajı */}
+          {/* Record button + readiness message */}
           <div className="action-bar-section action-bar-section--main">
             {!isRecording && (
               <span className="action-bar-ready">
                 {!mediaReady
-                  ? '⏳ Model yükleniyor...'
+                  ? '⏳ Loading model...'
                   : speechReady === null
-                    ? '⏳ Servis kontrol...'
-                    : '✅ Hazır'}
+                    ? '⏳ Checking service...'
+                    : '✅ Ready'}
               </span>
             )}
             <button
@@ -978,37 +978,37 @@ function InterviewSession() {
               className={`btn ${isRecording ? 'btn-danger' : 'btn-primary'}`}
             >
               {isRecording
-                ? '⏹ Kaydı Durdur'
+                ? '⏹ Stop Recording'
                 : !mediaReady
-                  ? 'Model Yükleniyor...'
+                  ? 'Loading Model...'
                   : speechReady === null
-                    ? 'Servis Kontrol Ediliyor...'
-                    : '⏺ Kaydı Başlat'}
+                    ? 'Checking Service...'
+                    : '⏺ Start Recording'}
             </button>
           </div>
 
-          {/* Servis durum göstergeleri */}
+          {/* Service status indicators */}
           <div className="action-bar-section action-bar-section--status">
             <div className="status-row">
-              <span className="status-label">Görüntü</span>
+              <span className="status-label">Video</span>
               <span className={`status-dot ${mediaReady ? 'dot-ok' : 'dot-loading'}`}>
-                {mediaReady ? '● Aktif' : '◌ Yükleniyor'}
+                {mediaReady ? '● Active' : '◌ Loading'}
               </span>
             </div>
             <div className="status-row">
-              <span className="status-label">Ses</span>
+              <span className="status-label">Audio</span>
               <span className={`status-dot ${speechReady ? 'dot-ok' : 'dot-warn'}`}>
-                {speechReady ? '● Hazır' : '◌ Bekleniyor'}
+                {speechReady ? '● Ready' : '◌ Waiting'}
               </span>
             </div>
             {isRecording && (
               <>
                 <div className="status-row">
-                  <span className="status-label">Göz Teması</span>
+                  <span className="status-label">Eye Contact</span>
                   <span className="status-value-sm">{eyeContactPercent}%</span>
                 </div>
                 <div className="status-row">
-                  <span className="status-label">Duruş</span>
+                  <span className="status-label">Posture</span>
                   <span className="status-value-sm">{Math.round(currentMetrics.posture)}%</span>
                 </div>
               </>
@@ -1019,17 +1019,17 @@ function InterviewSession() {
           <div className="action-bar-section action-bar-section--nav">
             <button onClick={handleNext} disabled={uploading} className="btn btn-primary">
               {uploading
-                ? 'İşleniyor...'
+                ? 'Processing...'
                 : currentQuestionIndex < questions.length - 1
-                  ? 'Sonraki Soru →'
-                  : 'Mülakatı Bitir ✓'}
+                  ? 'Next Question →'
+                  : 'Finish Interview ✓'}
             </button>
           </div>
 
-          {/* AI canlı analiz (varsa alt satır) */}
+          {/* AI live insight (bottom row, if available) */}
           {llmInsight && (
             <div className="action-bar-insight">
-              <strong>AI Analiz</strong> — {llmInsight.summary}
+              <strong>AI Insight</strong> — {llmInsight.summary}
               {llmInsight.risks?.length > 0 && <span> · ⚠ {llmInsight.risks[0]}</span>}
               {llmInsight.suggestions?.length > 0 && <span> · 💡 {llmInsight.suggestions[0]}</span>}
             </div>

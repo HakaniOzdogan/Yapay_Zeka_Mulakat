@@ -87,10 +87,26 @@ function Report() {
   const [scoringMessage, setScoringMessage] = useState<string | null>(null)
   const [scoringError, setScoringError] = useState<string | null>(null)
   const [isTranscriptOpen, setIsTranscriptOpen] = useState(false)
+  const [isProcessing, setIsProcessing] = useState(false)
 
   useEffect(() => {
     void loadReport()
   }, [sessionId])
+
+  // Poll every 5 s while session is still processing
+  useEffect(() => {
+    if (!isProcessing || !sessionId) return
+    const id = setInterval(async () => {
+      try {
+        const sess = await ApiService.getSession(sessionId)
+        if ((sess?.status || '').toLowerCase() === 'completed') {
+          setIsProcessing(false)
+          void loadReport()
+        }
+      } catch { /* keep polling */ }
+    }, 5000)
+    return () => clearInterval(id)
+  }, [isProcessing, sessionId])
 
   const loadScoringProfiles = async (preferredProfile?: string) => {
     if (!sessionId) {
@@ -130,6 +146,7 @@ function Report() {
     }
 
     setLoading(true)
+    setIsProcessing(false)
 
     try {
       const reportData = await ApiService.getReport(sessionId)
@@ -147,8 +164,19 @@ function Report() {
       }
 
       await loadScoringProfiles(sessionData?.scoringProfile)
-    } catch (error) {
+    } catch (error: any) {
       console.error('Report load failed:', error)
+      // Check if session exists but is still processing
+      if (sessionId) {
+        try {
+          const sess = await ApiService.getSession(sessionId)
+          if (sess && (sess.status || '').toLowerCase() !== 'completed') {
+            setIsProcessing(true)
+            setReport(null)
+            return
+          }
+        } catch { /* fall through to null */ }
+      }
       setReport(null)
     } finally {
       setLoading(false)
@@ -412,11 +440,30 @@ function Report() {
     )
   }
 
+  if (isProcessing) {
+    return (
+      <div className="page report-page">
+        <div className="report-processing-page">
+          <div className="report-processing-spinner" />
+          <h2>Preparing Report</h2>
+          <p>Interview data is being processed, please wait...</p>
+          <p className="report-processing-hint">This page will update automatically.</p>
+          <button className="btn btn-secondary" onClick={() => navigate('/reports')}>
+            Back to My Reports
+          </button>
+        </div>
+      </div>
+    )
+  }
+
   if (!report) {
     return (
-      <div className="page">
-        <div className="container">
-          <p className="error-text">Report not found</p>
+      <div className="page report-page">
+        <div className="report-processing-page">
+          <p className="error-text">Report not found.</p>
+          <button className="btn btn-secondary" onClick={() => navigate('/reports')}>
+            Back to My Reports
+          </button>
         </div>
       </div>
     )
@@ -481,9 +528,9 @@ function Report() {
   const transcriptText = transcriptSegments.length > 0
     ? transcriptSegments.map((s) => s.text).join('\n')
     : (report.transcript?.full_text ?? report.session?.transcript?.full_text ?? (typeof report.session?.transcript === 'string' ? report.session.transcript : null))
-  const sessionDate = session?.createdAt ? new Date(session.createdAt).toLocaleDateString('tr-TR', { day: '2-digit', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : null
-  const sessionRole = session?.selectedRole ?? session?.role ?? 'Belirtilmedi'
-  const sessionLang = session?.language === 'en' ? 'İngilizce' : 'Türkçe'
+  const sessionDate = session?.createdAt ? new Date(session.createdAt).toLocaleDateString('en-US', { day: '2-digit', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : null
+  const sessionRole = session?.selectedRole ?? session?.role ?? 'Not specified'
+  const sessionLang = session?.language === 'en' ? 'English' : 'Turkish'
   const questionCount = questions.length
 
   return (
@@ -493,12 +540,12 @@ function Report() {
         {/* ── PROFESSIONAL REPORT HEADER ── */}
         <div className="report-hero-header">
           <div className="report-hero-left">
-            <span className="eyebrow">Mülakat Raporu</span>
+            <span className="eyebrow">Interview Report</span>
             <h1 className="report-hero-title">Interview Performance Report</h1>
             <div className="report-hero-meta">
               <span className="report-meta-chip">🎯 {sessionRole}</span>
               <span className="report-meta-chip">🌐 {sessionLang}</span>
-              <span className="report-meta-chip">❓ {questionCount} Soru</span>
+              <span className="report-meta-chip">❓ {questionCount} Questions</span>
               {sessionDate && <span className="report-meta-chip">📅 {sessionDate}</span>}
             </div>
           </div>
@@ -511,7 +558,7 @@ function Report() {
             </div>
             <div className="report-hero-grade" style={{ color: getScoreColor(overall) }}>Grade {getScoreGrade(overall)}</div>
             <div className="report-hero-verdict">
-              {overall >= 80 ? '🏆 Mükemmel Performans' : overall >= 60 ? '👍 Gelişime Açık Güçlü Taban' : '📈 Hedefli Pratikle İlerlenebilir'}
+              {overall >= 80 ? '🏆 Excellent Performance' : overall >= 60 ? '👍 Strong Baseline with Room to Grow' : '📈 Progress Possible with Targeted Practice'}
             </div>
           </div>
         </div>
@@ -556,7 +603,7 @@ function Report() {
         </div>
 
         <div className="feedback-section question-audio-section" data-testid="question-audio-section">
-          <h2>🎙️ Görüşme Kayıtları ve Deşifre</h2>
+          <h2>🎙️ Interview Recordings &amp; Transcript</h2>
 
           {questions.length > 0 ? (
             <div className="question-audio-list">
@@ -584,7 +631,7 @@ function Report() {
                 return (
                   <div key={question.id || question.order} className="interview-qa-card" data-testid={`question-audio-card-${question.order}`}>
                     <div className="interview-qa-header">
-                      <span className="interview-qa-num">Soru {question.order}</span>
+                      <span className="interview-qa-num">Question {question.order}</span>
                       {question.startMs != null && question.endMs != null && (
                         <span className="interview-qa-duration">
                           {formatMs(question.startMs)} – {formatMs(question.endMs)}
@@ -593,7 +640,7 @@ function Report() {
                     </div>
                     <div className="interview-qa-prompt">{question.prompt}</div>
 
-                    {/* ── Video + Metrik Satırı ── */}
+                    {/* ── Video + Metrics Row ── */}
                     <div className="interview-qa-body">
                       <div className={`interview-qa-videos${screenSrc ? ' interview-qa-videos--dual' : ''}`}>
                         {/* Webcam */}
@@ -603,30 +650,30 @@ function Report() {
                             <video controls preload="metadata" src={webcamSrc}
                               className="interview-qa-video-el"
                               data-testid={`question-audio-player-${question.order}`}>
-                              Tarayıcınız video oynatmayı desteklemiyor.
+                              Your browser does not support video playback.
                             </video>
                           ) : (
                             <div className="interview-qa-no-video">
-                              <span>📹</span><p>Kayıt bulunamadı</p>
+                              <span>📹</span><p>No recording found</p>
                             </div>
                           )}
                         </div>
 
-                        {/* Ekran kaydı (opsiyonel) */}
+                        {/* Screen recording (optional) */}
                         {screenSrc && (
                           <div className="interview-qa-video-block">
-                            <div className="interview-qa-video-label">Ekran</div>
+                            <div className="interview-qa-video-label">Screen</div>
                             <video controls preload="metadata" src={screenSrc}
                               className="interview-qa-video-el">
-                              Tarayıcınız video oynatmayı desteklemiyor.
+                              Your browser does not support video playback.
                             </video>
                           </div>
                         )}
 
-                        {/* Metrik grafiği */}
+                        {/* Metrics chart */}
                         {hasMetrics && (
                           <div className="interview-qa-metrics">
-                            <div className="interview-qa-video-label">Metrikler</div>
+                            <div className="interview-qa-video-label">Metrics</div>
                             <ResponsiveContainer width="100%" height={180}>
                               <LineChart data={chartData} margin={{ top: 4, right: 8, left: -24, bottom: 0 }}>
                                 <XAxis dataKey="t" hide />
@@ -637,9 +684,9 @@ function Report() {
                                   labelFormatter={() => ''}
                                 />
                                 <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11 }} />
-                                <Line type="monotone" dataKey="eyeContact" name="Göz Teması" stroke="#7c83ff" dot={false} strokeWidth={2} />
-                                <Line type="monotone" dataKey="posture" name="Duruş" stroke="#4caf50" dot={false} strokeWidth={2} />
-                                <Line type="monotone" dataKey="fidget" name="Kıpırdama" stroke="#ff9800" dot={false} strokeWidth={1.5} />
+                                <Line type="monotone" dataKey="eyeContact" name="Eye Contact" stroke="#7c83ff" dot={false} strokeWidth={2} />
+                                <Line type="monotone" dataKey="posture" name="Posture" stroke="#4caf50" dot={false} strokeWidth={2} />
+                                <Line type="monotone" dataKey="fidget" name="Fidget" stroke="#ff9800" dot={false} strokeWidth={1.5} />
                               </LineChart>
                             </ResponsiveContainer>
                           </div>
@@ -650,7 +697,7 @@ function Report() {
                       {qTranscript.length > 0 && (
                         <div className="interview-qa-transcript">
                           <div className="interview-qa-transcript-header">
-                            <span>📄</span> Transkript
+                            <span>📄</span> Transcript
                           </div>
                           <div className="interview-qa-transcript-body">
                             {qTranscript.map((seg, i) => (
@@ -668,14 +715,14 @@ function Report() {
               })}
             </div>
           ) : (
-            <div className="no-feedback"><p>Soru kaydı bulunamadı.</p></div>
+            <div className="no-feedback"><p>No question recordings found.</p></div>
           )}
 
           {(transcriptSegments.length > 0 || transcriptText) && (
             <div className="interview-full-transcript interview-full-transcript--expanded">
               <div className="interview-full-transcript-header">
                 <span>📄</span>
-                <h3>Görüşme Transkripti</h3>
+                <h3>Interview Transcript</h3>
               </div>
               <div className="interview-full-transcript-body">
                 {transcriptSegments.length > 0
@@ -952,10 +999,10 @@ function Report() {
 
         <div className="report-actions" data-testid="report-actions">
           <button onClick={() => navigate('/')} className="btn btn-primary">
-            Yeni Mülakat Başlat
+            Start New Interview
           </button>
           <button onClick={() => navigate('/reports')} className="btn btn-secondary">
-            Tüm Raporlar
+            All Reports
           </button>
           <button
             onClick={exportJson}

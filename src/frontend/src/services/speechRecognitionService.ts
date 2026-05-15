@@ -6,7 +6,7 @@ export class SpeechRecognitionService {
   private audioChunks: Blob[] = [];
   private chunkInterval: ReturnType<typeof setInterval> | null = null;
 
-  // Her 4 saniyede bir chunk gönderir
+  // Sends a chunk every 4 seconds
   private readonly CHUNK_INTERVAL_MS = 4000;
 
   async start(onTranscript: (text: string) => void): Promise<void> {
@@ -22,14 +22,14 @@ export class SpeechRecognitionService {
       }
     };
 
-    this.mediaRecorder.start(1000); // Her 1 saniyede chunk topla
+    this.mediaRecorder.start(1000); // Collect chunks every 1 second
 
-    // Her 4 saniyede birikmiş chunk'ları gönder
+    // Send accumulated chunks every 4 seconds
     this.chunkInterval = setInterval(async () => {
       if (this.audioChunks.length === 0) return;
 
       const blob = new Blob(this.audioChunks, { type: 'audio/webm' });
-      this.audioChunks = []; // Temizle
+      this.audioChunks = []; // Clear
 
       const text = await this.transcribe(blob);
       if (text) onTranscript(text);
@@ -61,7 +61,7 @@ export class SpeechRecognitionService {
       });
 
       if (!response.ok) {
-        console.error('STT hatası:', response.status);
+        console.error('STT error:', response.status);
         return '';
       }
 
@@ -69,7 +69,7 @@ export class SpeechRecognitionService {
       return data.text || '';
       
     } catch (err) {
-      console.error('STT bağlantı hatası:', err);
+      console.error('STT connection error:', err);
       return '';
     }
   }
@@ -79,7 +79,7 @@ export async function checkSTTService(): Promise<boolean> {
   try {
     const res = await fetch(`${PYTHON_SERVICE_URL}/health`);
     const data = await res.json();
-    console.log('STT Servisi:', data);
+    console.log('STT Service:', data);
     return data.status === 'ok';
   } catch {
     return false;

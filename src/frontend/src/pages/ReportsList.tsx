@@ -13,6 +13,10 @@ interface SessionItem {
   overallScore?: number | null
 }
 
+function isSessionReady(status?: string): boolean {
+  return (status || '').toLowerCase() === 'completed'
+}
+
 function ReportsList() {
   const navigate = useNavigate()
   const [loading, setLoading] = useState(true)
@@ -25,6 +29,14 @@ function ReportsList() {
   useEffect(() => {
     void load()
   }, [])
+
+  // Poll every 5 s while any session is still processing
+  useEffect(() => {
+    const hasProcessing = sessions.some(s => !isSessionReady(s.status))
+    if (!hasProcessing) return
+    const id = setInterval(() => { void load() }, 5000)
+    return () => clearInterval(id)
+  }, [sessions])
 
   const load = async () => {
     try {
@@ -81,14 +93,14 @@ function ReportsList() {
       <div className="reports-shell">
         <div className="reports-hero">
           <div>
-            <span className="eyebrow">Aday Paneli</span>
-            <h1>Gecmis raporlar ve analizler</h1>
-            <p className="subtitle">Mulakat oturumlarinizi, skor ozetlerini ve tekrar acilabilir seanslari bu ekranda yonetin.</p>
+            <span className="eyebrow">Candidate Panel</span>
+            <h1>Past reports and analyses</h1>
+            <p className="subtitle">Manage your interview sessions, score summaries, and re-openable sessions on this screen.</p>
           </div>
           <div className="summary-card glass-card" style={{ padding: 24, borderRadius: 28, minWidth: 260 }}>
-            <h3 style={{ marginBottom: 8 }}>Toplam oturum</h3>
+            <h3 style={{ marginBottom: 8 }}>Total Sessions</h3>
             <div className="overall-score-value" style={{ fontSize: '3rem' }}>{sessions.length}</div>
-            <p style={{ margin: 0 }}>Kayitli seanslar ayni tasarim sistemi ile listeleniyor.</p>
+            <p style={{ margin: 0 }}>All recorded sessions are listed here.</p>
           </div>
         </div>
 
@@ -99,52 +111,62 @@ function ReportsList() {
 
         {!loading && sessions.length === 0 && (
           <div className="reports-empty" data-testid="sessions-empty-state">
-            Henuz kayitli bir mulakat yok.
+            No interview sessions recorded yet.
           </div>
         )}
 
         {!loading && sessions.length > 0 && (
           <div className="reports-grid">
-            {sessions.map((s) => (
-              <article key={s.id} className="report-item-card" data-testid={`session-card-${s.id}`}>
-                <div className="report-item-top">
-                  <h3>{s.selectedRole || s.role || '-'}</h3>
-                  <span className={`report-status status-${(s.status || '').toLowerCase()}`}>
-                    {s.status || 'Unknown'}
-                  </span>
-                </div>
-                <p className="report-item-meta">
-                  {new Date(s.createdAt).toLocaleString('tr-TR')} | {(s.language || '-').toUpperCase()}
-                </p>
-                <div className="report-item-score">
-                  Score: {s.overallScore ?? '-'}
-                </div>
-                <div className="report-item-actions">
-                  <button
-                    type="button"
-                    className="btn btn-primary"
-                    onClick={() => navigate(`/report/${s.id}`)}
-                  >
-                    Raporu Ac
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn-secondary"
-                    onClick={() => navigate(`/interview/${s.id}`)}
-                  >
-                    Oturuma Git
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn-secondary btn-danger"
-                    data-testid={`session-delete-button-${s.id}`}
-                    onClick={() => onAskDelete(s)}
-                  >
-                    Delete
-                  </button>
-                </div>
-              </article>
-            ))}
+            {sessions.map((s) => {
+              const ready = isSessionReady(s.status)
+              return (
+                <article key={s.id} className={`report-item-card${ready ? '' : ' report-item-card--processing'}`} data-testid={`session-card-${s.id}`}>
+                  <div className="report-item-top">
+                    <h3>{s.selectedRole || s.role || '-'}</h3>
+                    {ready ? (
+                      <span className="report-status status-completed">Ready</span>
+                    ) : (
+                      <span className="report-status status-processing">
+                        <span className="processing-dot" />
+                        Processing...
+                      </span>
+                    )}
+                  </div>
+                  <p className="report-item-meta">
+                    {new Date(s.createdAt).toLocaleString('en-US')} | {(s.language || '-').toUpperCase()}
+                  </p>
+                  <div className="report-item-score">
+                    {ready ? `Score: ${s.overallScore ?? '-'}` : 'Report is being prepared, please wait...'}
+                  </div>
+                  <div className="report-item-actions">
+                    <button
+                      type="button"
+                      className="btn btn-primary"
+                      onClick={() => navigate(`/report/${s.id}`)}
+                      disabled={!ready}
+                      title={ready ? undefined : 'Report not ready yet'}
+                    >
+                      {ready ? 'Open Report' : 'Processing...'}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      onClick={() => navigate(`/interview/${s.id}`)}
+                    >
+                      Go to Session
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-danger"
+                      data-testid={`session-delete-button-${s.id}`}
+                      onClick={() => onAskDelete(s)}
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </article>
+              )
+            })}
           </div>
         )}
       </div>

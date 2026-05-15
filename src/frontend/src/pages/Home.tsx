@@ -19,14 +19,14 @@ function Home() {
   ]
 
   const languages = [
-    { code: 'tr', label: 'Türkçe' },
+    { code: 'tr', label: 'Turkish' },
     { code: 'en', label: 'English' }
   ]
 
   const difficulties = [
-    { value: 'easy', label: 'Kolay' },
-    { value: 'medium', label: 'Orta' },
-    { value: 'hard', label: 'Zor' }
+    { value: 'easy', label: 'Easy' },
+    { value: 'medium', label: 'Medium' },
+    { value: 'hard', label: 'Hard' }
   ] as const
 
   const handleStart = async () => {
@@ -46,7 +46,7 @@ function Home() {
       }
     } catch (error) {
       console.error('Failed to create session:', error)
-      alert('Bağlantı kurulamadı. Lütfen backend servisinin çalıştığını kontrol edin.')
+      alert('Could not connect. Please check that the backend service is running.')
     } finally {
       setLoading(false)
     }
@@ -57,13 +57,13 @@ function Home() {
       <div className="home-shell">
         <section className="home-hero-grid">
           <div>
-            <span className="eyebrow">Yapay Zeka Mülakat Stüdyosu</span>
+            <span className="eyebrow">AI Interview Studio</span>
             <h1 className="hero-title">
-              Geleceğin <em>mülakat</em> deneyimi burada.
+              The future of <em>interview</em> experience is here.
             </h1>
             <p className="hero-copy">
-              Yapay zeka destekli simülasyonlarla teknik, davranışsal ve iletişim performansınızı tek bir akışta geliştirin.
-              Canlı geri bildirim, transkript ve detaylı analiz aynı platformda.
+              Improve your technical, behavioral, and communication performance with AI-powered simulations in one flow.
+              Live feedback, transcript, and detailed analysis on the same platform.
             </p>
             <div className="hero-actions">
               <button
@@ -71,78 +71,78 @@ function Home() {
                 disabled={loading}
                 className={`btn btn-primary ${loading ? 'animate-pulse-glow' : ''}`}
               >
-                {loading ? 'Oturum hazırlanıyor...' : 'Hemen Başla'}
+                {loading ? 'Setting up session...' : 'Get Started'}
               </button>
               <button type="button" className="btn btn-secondary" onClick={() => navigate('/reports')}>
-                Geçmiş Analizleri Gör
+                View Past Reports
               </button>
             </div>
 
             <div className="hero-stats">
               <div className="stat-card">
-                <span className="stat-value">Gerçek Zamanlı</span>
-                <span className="stat-label">Canlı koçluk ve vizyon metrikleri</span>
+                <span className="stat-value">Real-Time</span>
+                <span className="stat-label">Live coaching and vision metrics</span>
               </div>
               <div className="stat-card">
-                <span className="stat-value">Transkript</span>
-                <span className="stat-label">Anlık ve oturum sonu konuşma dökümü</span>
+                <span className="stat-value">Transcript</span>
+                <span className="stat-label">Real-time and session-end speech transcription</span>
               </div>
               <div className="stat-card">
-                <span className="stat-value">AI Rapor</span>
-                <span className="stat-label">Yetkinlik bazlı güçlü ve gelişim alanları</span>
+                <span className="stat-value">AI Report</span>
+                <span className="stat-label">Competency-based strengths and development areas</span>
               </div>
             </div>
           </div>
 
           <div className="hero-visual">
             <div className="hero-visual-frame">
-              <span className="pulse-badge">AI analiz ediyor</span>
+              <span className="pulse-badge">AI is analyzing</span>
               <div className="pulse-orb">
                 <div className="pulse-icon">||</div>
               </div>
             </div>
             <div className="hero-floating-card">
-              <div className="eyebrow" style={{ marginBottom: 10 }}>Canlı Koç</div>
+              <div className="eyebrow" style={{ marginBottom: 10 }}>Live Coach</div>
               <p style={{ margin: 0 }}>
-                Göz teması, tempo, duruş ve içerik kalitesini tek panelde izleyin.
+                Monitor eye contact, pace, posture, and content quality in one panel.
               </p>
             </div>
           </div>
         </section>
 
         <section className="home-section">
-          <span className="eyebrow">Süreç nasıl işler</span>
+          <span className="eyebrow">How it works</span>
           <div className="feature-grid">
             <article className="feature-card primary">
               <div className="feature-icon">1</div>
-              <h3>Role uygun sorular</h3>
-              <p>Seçilen role ve dile göre seans otomatik üretilir, soru akışı pozisyona göre şekillenir.</p>
+              <h3>Role-specific questions</h3>
+              <p>Session is auto-generated based on selected role and language, question flow is tailored to the position.</p>
             </article>
             <article className="feature-card secondary">
               <div className="feature-icon">2</div>
-              <h3>Canlı geri bildirim</h3>
-              <p>Konuşma hızı, göz iletişimi, postür ve ipucu paneli mülakat boyunca sizinle kalır.</p>
+              <h3>Live feedback</h3>
+              <p>Speech rate, eye contact, posture, and hints panel stay with you throughout the interview.</p>
             </article>
             <article className="feature-card tertiary">
               <div className="feature-icon">3</div>
-              <h3>Derin analiz raporu</h3>
-              <p>Oturum sonunda skor, geri bildirim ve AI coaching ile gelişim yolunuzu net görürsünüz.</p>
+              <h3>Deep analysis report</h3>
+              <p>At session end, your development path becomes clear with scores, feedback, and AI coaching.</p>
             </article>
           </div>
         </section>
 
         <section className="config-section">
           <div className="config-panel glass-card">
-            <span className="eyebrow">Oturum kurulumu</span>
-            <h2>Mülakatınızı şimdi başlatın.</h2>
+            <span className="eyebrow">Session Setup</span>
+            <h2>Start your interview now.</h2>
             <p>
-              Seçiminizi yapın, API oturumu oluştursun ve sizi canlı mülakat ekranına taşıyalım.
+              Make your selection and we'll create a session and take you to the live interview screen.
             </p>
           </div>
 
           <div className="form config-panel">
             <div className="form-group">
-              <label>Pozisyon Seçin</label>
+              <label>Select Position</label>
               <select value={selectedRole} onChange={(e) => setSelectedRole(e.target.value)}>
                 {roles.map((role) => (
                   <option key={role} value={role}>{role}</option>
@@ -152,7 +152,7 @@ function Home() {
 
             <div className="config-grid">
               <div className="form-group">
-                <label>Dil Seçin</label>
+                <label>Select Language</label>
                 <select value={selectedLanguage} onChange={(e) => setSelectedLanguage(e.target.value)}>
                   {languages.map((lang) => (
                     <option key={lang.code} value={lang.code}>{lang.label}</option>
@@ -161,7 +161,7 @@ function Home() {
               </div>
 
               <div className="form-group">
-                <label>Zorluk Seviyesi</label>
+                <label>Difficulty Level</label>
                 <select value={selectedDifficulty} onChange={(e) => setSelectedDifficulty(e.target.value as typeof selectedDifficulty)}>
                   {difficulties.map((d) => (
                     <option key={d.value} value={d.value}>{d.label}</option>
@@ -171,7 +171,7 @@ function Home() {
             </div>
 
             <div className="form-group">
-              <label>Mod Seçin</label>
+              <label>Select Mode</label>
               <div className="mode-options">
                 <label>
                   <input
@@ -181,7 +181,7 @@ function Home() {
                     checked={selectedMode === 'realtime'}
                     onChange={(e) => setSelectedMode(e.target.value as 'realtime' | 'offline')}
                   />
-                  Gerçek zamanlı mülakat oturumu
+                  Real-time interview session
                 </label>
                 <label>
                   <input
@@ -191,7 +191,7 @@ function Home() {
                     checked={selectedMode === 'offline'}
                     onChange={(e) => setSelectedMode(e.target.value as 'realtime' | 'offline')}
                   />
-                  Sonradan yükle ve analiz et
+                  Upload and analyze later
                 </label>
               </div>
             </div>
@@ -201,7 +201,7 @@ function Home() {
               disabled={loading}
               className={`btn btn-primary ${loading ? 'animate-pulse-glow' : ''}`}
             >
-              {loading ? 'Oturum hazırlanıyor...' : 'Mülakatı Başlat'}
+              {loading ? 'Setting up session...' : 'Start Interview'}
             </button>
           </div>
         </section>

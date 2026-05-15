@@ -23,7 +23,7 @@ function TopNav() {
       <div className="top-nav-inner">
         <Link to="/" className="top-nav-brand">
           <span className="brand-dot" />
-          Yapay Zeka Mulakat
+          AI Interview
         </Link>
 
         <nav className="top-nav-links">
@@ -32,7 +32,7 @@ function TopNav() {
           </NavLink>
           {isAuthenticated && (
             <NavLink to="/reports" className={({ isActive }) => `top-nav-link ${isActive ? 'active' : ''}`}>
-              Analizler
+              Analytics
             </NavLink>
           )}
           {isAdmin && (
@@ -47,12 +47,12 @@ function TopNav() {
             <>
               <span className="top-nav-user">{user?.email}</span>
               <button type="button" data-testid="logout-button" className="btn btn-secondary top-nav-logout" onClick={onLogout}>
-                Cikis
+                Logout
               </button>
             </>
           ) : (
             <button type="button" className="btn btn-primary" onClick={() => navigate('/auth')}>
-              Giris Yap
+              Sign In
             </button>
           )}
         </div>

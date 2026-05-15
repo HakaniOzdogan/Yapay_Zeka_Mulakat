@@ -900,9 +900,70 @@
   letter-spacing: 0.08em;
 }
 
-.status-completed { color: #b9fcd7; }
+.status-completed { color: #b9fcd7; background: rgba(185,252,215,0.08); }
+.status-processing { color: #ffd77a; background: rgba(255,215,122,0.1); display: inline-flex; align-items: center; gap: 6px; }
 .status-created,
 .status-draft { color: #ffe0a4; }
+
+/* processing dot animation */
+.processing-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #ffd77a;
+  flex-shrink: 0;
+  animation: pulse-dot 1.2s ease-in-out infinite;
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.75); }
+}
+
+/* dim card while processing */
+.report-item-card--processing {
+  opacity: 0.75;
+}
+
+/* full-page processing / not-found state */
+.report-processing-page {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  min-height: 50vh;
+  text-align: center;
+  padding: 40px 24px;
+}
+
+.report-processing-page h2 {
+  font-size: 1.5rem;
+  font-weight: 700;
+  margin: 0;
+}
+
+.report-processing-page p {
+  margin: 0;
+  color: rgba(229,226,225,0.65);
+}
+
+.report-processing-hint {
+  font-size: 0.85rem !important;
+}
+
+.report-processing-spinner {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  border: 4px solid rgba(255,255,255,0.1);
+  border-top-color: #7c83ff;
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
 
 .report-page {
   background: transparent;

@@ -141,7 +141,7 @@ function OfflineAnalyze() {
           <>
             <div className="session-info">
               <p><strong>Role:</strong> {session.selectedRole}</p>
-              <p><strong>Language:</strong> {session.language === 'tr' ? 'Türkçe' : 'English'}</p>
+              <p><strong>Language:</strong> {session.language === 'tr' ? 'Turkish' : 'English'}</p>
             </div>
 
             <div className="upload-area">

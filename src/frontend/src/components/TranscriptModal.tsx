@@ -57,7 +57,7 @@ export function TranscriptModal({ isOpen, onClose, transcript, segments, questio
     <div className="transcript-modal-overlay" onClick={onClose}>
       <div className="transcript-modal" onClick={(e) => e.stopPropagation()}>
         <div className="transcript-modal-header">
-          <h2>📄 Görüşme Deşifresi</h2>
+          <h2>📄 Interview Transcript</h2>
           <div className="transcript-modal-actions">
             {hasSegments && (
               <div className="transcript-view-toggle">
@@ -66,19 +66,19 @@ export function TranscriptModal({ isOpen, onClose, transcript, segments, questio
                   className={`btn btn-sm ${viewMode === 'full' ? 'btn-primary' : 'btn-secondary'}`}
                   onClick={() => setViewMode('full')}
                 >
-                  Tam Metin
+                  Full Text
                 </button>
                 <button
                   type="button"
                   className={`btn btn-sm ${viewMode === 'segments' ? 'btn-primary' : 'btn-secondary'}`}
                   onClick={() => setViewMode('segments')}
                 >
-                  Soru Bazlı
+                  By Question
                 </button>
               </div>
             )}
             <button type="button" className="btn btn-sm btn-secondary" onClick={handleCopy}>
-              {copiedState ? '✅ Kopyalandı' : '📋 Kopyala'}
+              {copiedState ? '✅ Copied' : '📋 Copy'}
             </button>
             <button type="button" className="transcript-modal-close" onClick={onClose}>✕</button>
           </div>
@@ -87,7 +87,7 @@ export function TranscriptModal({ isOpen, onClose, transcript, segments, questio
         <div className="transcript-modal-body">
           {viewMode === 'full' || !hasSegments ? (
             <div className="transcript-full-text">
-              {transcript || 'Transkript verisi bulunamadı.'}
+              {transcript || 'No transcript data available.'}
             </div>
           ) : (
             <div className="transcript-segments">
@@ -96,7 +96,7 @@ export function TranscriptModal({ isOpen, onClose, transcript, segments, questio
                 .map(([questionOrder, segs]) => (
                   <div key={questionOrder} className="transcript-question-group">
                     <div className="transcript-question-label">
-                      {Number(questionOrder) > 0 ? `Soru ${questionOrder}` : 'Genel'}
+                      {Number(questionOrder) > 0 ? `Question ${questionOrder}` : 'General'}
                     </div>
                     {segs.map((seg, idx) => (
                       <div key={idx} className="transcript-segment-row">
