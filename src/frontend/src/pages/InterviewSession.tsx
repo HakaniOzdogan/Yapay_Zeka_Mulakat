@@ -803,18 +803,6 @@ function InterviewSession() {
 
   return (
     <div className="page interview-page session-page">
-      <div className="interview-topbar">
-        <span className="interview-topbar-logo" onClick={handleAbortClick}>
-          Interview AI
-        </span>
-        <button
-          type="button"
-          className="btn btn-sm btn-danger"
-          onClick={handleAbortClick}
-        >
-          ✕ Mülakatı Durdur
-        </button>
-      </div>
       <div className="session-shell">
         <div className="session-header">
           <div>
@@ -824,6 +812,13 @@ function InterviewSession() {
           <div className="session-header-meta">
             <span className="status-pill">{isRecording ? 'Canli oturum' : 'Hazir'}</span>
             <span className="session-timer">{formattedElapsed}</span>
+            <button
+              type="button"
+              className="btn btn-sm btn-danger"
+              onClick={handleAbortClick}
+            >
+              ✕ Durdur
+            </button>
           </div>
         </div>
 
@@ -838,42 +833,6 @@ function InterviewSession() {
                 <span className="tag">{isRecording ? 'Live feedback' : 'Waiting to start'}</span>
               </div>
             </section>
-
-            <section className="analysis-card">
-              <div className="eyebrow" style={{ marginBottom: 12 }}>AI Assistant Analysis</div>
-              <div className="analysis-grid">
-                <div className="analysis-mini">
-                  <div className="analysis-mini-header">
-                    <span>Goz temasi</span>
-                    <span>{eyeContactPercent}%</span>
-                  </div>
-                  <div className="analysis-track">
-                    <div className="analysis-fill primary" style={{ width: `${Math.max(0, Math.min(100, eyeContactPercent))}%` }} />
-                  </div>
-                  <div className="live-transcript-line">Kamera odagi ve bakis hizasi bu kartta ozetlenir.</div>
-                </div>
-
-                <div className="analysis-mini">
-                  <div className="analysis-mini-header">
-                    <span>Stabil anlatim</span>
-                    <span>{pacePercent}%</span>
-                  </div>
-                  <div className="analysis-track">
-                    <div className="analysis-fill secondary" style={{ width: `${Math.max(0, Math.min(100, pacePercent))}%` }} />
-                  </div>
-                  <div className="live-transcript-line">Ses temposu ve kafa hareketi akisinin dengesi.</div>
-                </div>
-              </div>
-
-              <div className="analysis-mini" style={{ marginTop: 16 }}>
-                <div className="analysis-mini-header">
-                  <span>Anlik yorum</span>
-                  <span>{behaviorStats.dominantEmotion}</span>
-                </div>
-                <div className="live-transcript-line">{sentimentLabel}</div>
-              </div>
-            </section>
-
           </div>
 
           {/* ── ORTA: Video ── */}
@@ -962,6 +921,42 @@ function InterviewSession() {
           </div>
 
         </div>
+
+        {/* ── AI ANALİZ — tam genişlik ── */}
+        <section className="analysis-card analysis-card--wide">
+          <div className="eyebrow" style={{ marginBottom: 12 }}>AI Assistant Analysis</div>
+          <div className="analysis-grid analysis-grid--3col">
+            <div className="analysis-mini">
+              <div className="analysis-mini-header">
+                <span>Goz temasi</span>
+                <span>{eyeContactPercent}%</span>
+              </div>
+              <div className="analysis-track">
+                <div className="analysis-fill primary" style={{ width: `${Math.max(0, Math.min(100, eyeContactPercent))}%` }} />
+              </div>
+              <div className="live-transcript-line">Kamera odagi ve bakis hizasi bu kartta ozetlenir.</div>
+            </div>
+
+            <div className="analysis-mini">
+              <div className="analysis-mini-header">
+                <span>Stabil anlatim</span>
+                <span>{pacePercent}%</span>
+              </div>
+              <div className="analysis-track">
+                <div className="analysis-fill secondary" style={{ width: `${Math.max(0, Math.min(100, pacePercent))}%` }} />
+              </div>
+              <div className="live-transcript-line">Ses temposu ve kafa hareketi akisinin dengesi.</div>
+            </div>
+
+            <div className="analysis-mini">
+              <div className="analysis-mini-header">
+                <span>Anlik yorum</span>
+                <span>{behaviorStats.dominantEmotion}</span>
+              </div>
+              <div className="live-transcript-line">{sentimentLabel}</div>
+            </div>
+          </div>
+        </section>
 
         {/* ── ALT AKSİYON BARI ── */}
         <div className="interview-action-bar">

@@ -8,10 +8,8 @@ function TopNav() {
   const { isAuthenticated, isAdmin, user, logout } = useAuth()
 
   const isAuthPage = location.pathname === '/auth'
-  const isSessionPage = location.pathname.startsWith('/interview/')
-  const isReportPage = location.pathname.startsWith('/report/')
 
-  if (isAuthPage || isSessionPage || isReportPage) {
+  if (isAuthPage) {
     return null
   }
 
