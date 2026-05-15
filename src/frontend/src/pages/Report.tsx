@@ -807,16 +807,16 @@ function Report() {
                                 gridTemplateColumns: '1fr auto auto auto',
                                 gap: 12,
                                 alignItems: 'center',
-                                padding: '8px 10px',
-                                border: '1px solid #dbe4f0',
+                                padding: '8px 12px',
+                                border: '1px solid rgba(255,255,255,0.1)',
                                 borderRadius: 8,
-                                background: '#f9fbff'
+                                background: 'rgba(255,255,255,0.04)'
                               }}
                             >
-                              <strong>{field.label}</strong>
-                              <span>Current: {currentValue ?? 'n/a'}</span>
-                              <span>Preview: {previewValue ?? 'n/a'}</span>
-                              <span style={{ color: deltaColor, fontWeight: 700 }}>Delta: {deltaLabel}</span>
+                              <strong style={{ color: 'var(--lx-text-primary, #e5e2e1)' }}>{field.label}</strong>
+                              <span style={{ color: 'rgba(229,226,225,0.6)', fontSize: 13 }}>Current: {currentValue ?? 'n/a'}</span>
+                              <span style={{ color: 'rgba(229,226,225,0.6)', fontSize: 13 }}>Preview: {previewValue ?? 'n/a'}</span>
+                              <span style={{ color: deltaColor, fontWeight: 700, fontSize: 13 }}>Delta: {deltaLabel}</span>
                             </div>
                           )
                         })}

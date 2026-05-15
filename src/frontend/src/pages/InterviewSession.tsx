@@ -3,13 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import ApiService, { LiveAnalysisResponse } from '../services/ApiService'
 import { initMediaPipe, detectLandmarks, isMediaPipeReady } from '../services/MediaPipeService'
 import { MetricsComputer, Metrics, BehaviorStats } from '../services/MetricsComputer'
-import { generateCoachingHints, CoachingHint } from '../services/CoachingHints'
 import { AudioAnalyzer } from '../services/AudioAnalyzer'
-import {
-  getStreamingAsrReadiness,
-  SpeechReadinessReason,
-  SpeechDiagnostics
-} from '../speech/streamingAsr'
 import { SessionTransport, SessionTransportStats } from '../services/SessionTransport'
 import { FixedRollingBuffer } from '../vision/buffer'
 import {
@@ -25,10 +19,6 @@ import { Calibration, HeadPose, PoseLandmarks, VisionMetrics } from '../vision/t
 import { VideoCanvas } from '../components/VideoCanvas'
 import '../styles/pages.css'
 
-// Streaming ASR types — backward compat for legacy state/refs
-type StreamingAsrStatus = 'connecting' | 'connected' | 'reconnecting' | 'error' | 'stopped'
-interface StreamingAsrConnection { stop(): Promise<void> }
-
 const VISION_DEBUG_OVERLAY = import.meta.env.DEV
 const DEBUG_TRANSPORT = import.meta.env.DEV
 const CALIBRATION_DURATION_MS = 5000
@@ -37,49 +27,6 @@ const ROLLING_SECONDS = 5
 const APPROX_FPS = 30
 const VISION_BUFFER_SIZE = ROLLING_SECONDS * APPROX_FPS
 const METRIC_SMOOTH_ALPHA = 0.2
-
-interface WarningHistoryItem {
-  id: string
-  type: 'warning' | 'info'
-  message: string
-  time: string
-}
-
-type AudioActivityState =
-  | 'idle'
-  | 'capturing'
-  | 'receiving-partials'
-  | 'awaiting-final'
-  | 'finalized-recently'
-  | 'speech-unavailable'
-
-
-function deriveAudioActivityState(params: {
-  isRecording: boolean
-  asrStatus: StreamingAsrStatus
-  speechReady: boolean | null
-  lastAudioChunkAt: number | null
-  lastPartialAt: number | null
-  lastFinalAt: number | null
-  nowMs: number
-}): AudioActivityState {
-  const {
-    isRecording,
-    asrStatus,
-    speechReady,
-    lastAudioChunkAt,
-    lastPartialAt,
-    lastFinalAt,
-    nowMs
-  } = params
-
-  if (!isRecording) return 'idle'
-  if (speechReady === false || asrStatus === 'error') return 'speech-unavailable'
-  if (lastFinalAt && nowMs - lastFinalAt <= 6000) return 'finalized-recently'
-  if (lastPartialAt && nowMs - lastPartialAt <= 5000) return 'receiving-partials'
-  if (lastAudioChunkAt && nowMs - lastAudioChunkAt <= 5000) return 'awaiting-final'
-  return 'capturing'
-}
 
 function normalizeTranscriptText(text: string): string {
   return text.trim().toLocaleLowerCase('tr-TR').replace(/\s+/g, ' ')
@@ -145,9 +92,6 @@ function InterviewSession() {
     blinkCount: 0,
     currentEyesOpen: true
   })
-  const [coaching, setCoaching] = useState<CoachingHint[]>([])
-  const [showTranscript, setShowTranscript] = useState(false)
-  const [transcriptData, setTranscriptData] = useState<any>(null)
   const [uploading, setUploading] = useState(false)
   const [videoStream, setVideoStream] = useState<MediaStream | null>(null)
   const [showOverlay, setShowOverlay] = useState(true)
@@ -157,21 +101,8 @@ function InterviewSession() {
   const [faceLandmarks, setFaceLandmarks] = useState<any[] | undefined>(undefined)
   const [poseLandmarks, setPoseLandmarks] = useState<any[] | undefined>(undefined)
   const [llmInsight, setLlmInsight] = useState<LiveAnalysisResponse | null>(null)
-  const [liveTranscriptLines, setLiveTranscriptLines] = useState<string[]>([])
-  const [liveTranscriptInterim, setLiveTranscriptInterim] = useState('')
-  const [asrStatus, setAsrStatus] = useState<StreamingAsrStatus>('stopped')
-  const [asrError, setAsrError] = useState<string | null>(null)
-  const [asrNotice, setAsrNotice] = useState<string | null>(null)
   const [speechReady, setSpeechReady] = useState<boolean | null>(null)
-  const [speechReadinessReason, setSpeechReadinessReason] = useState<SpeechReadinessReason | null>(null)
-  const [speechReadyMessage, setSpeechReadyMessage] = useState<string | null>(null)
-  const [lastPartialAt, setLastPartialAt] = useState<number | null>(null)
-  const [lastFinalAt, setLastFinalAt] = useState<number | null>(null)
-  const [lastAudioChunkAt, setLastAudioChunkAt] = useState<number | null>(null)
-  const [audioActivityState, setAudioActivityState] = useState<AudioActivityState>('idle')
   const [clockNow, setClockNow] = useState(new Date())
-  const [warningHistory, setWarningHistory] = useState<WarningHistoryItem[]>([])
-  const [speechDiagnostics, setSpeechDiagnostics] = useState<SpeechDiagnostics | null>(null)
   const [visionMetrics, setVisionMetrics] = useState<VisionMetrics>({
     eyeContact: 0,
     posture: 0,
@@ -210,12 +141,8 @@ function InterviewSession() {
   const metricsWindowRef = useRef<Metrics[]>([])
   const behaviorStatsRef = useRef<BehaviorStats>(behaviorStats)
   const isRecordingRef = useRef(false)
-  const asrConnectionRef = useRef<StreamingAsrConnection | null>(null)
-  const asrBootstrapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const asrBootstrapInFlightRef = useRef(false)
   const sessionTransportRef = useRef<SessionTransport | null>(null)
   const transportStatsIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
-  const warningSeenAtRef = useRef<Record<string, number>>({})
   const sessionStartAtMsRef = useRef<number | null>(null)
   const lastVisionEventSentAtRef = useRef<number>(0)
   const headPoseBufferRef = useRef(new FixedRollingBuffer<HeadPose>(VISION_BUFFER_SIZE))
@@ -240,11 +167,8 @@ function InterviewSession() {
     const checkSpeechService = async () => {
       try {
         const speechUrl = import.meta.env.VITE_SPEECH_URL || 'http://localhost:8000'
-        const readiness = await getStreamingAsrReadiness(speechUrl)
-        setSpeechReady(readiness.ready)
-        if (readiness.details) {
-          setSpeechDiagnostics(readiness.details as any)
-        }
+        const resp = await fetch(`${speechUrl}/health`)
+        setSpeechReady(resp.ok)
       } catch {
         setSpeechReady(false)
       }
@@ -266,28 +190,8 @@ function InterviewSession() {
   }, [])
 
   useEffect(() => {
-    const nextState = deriveAudioActivityState({
-      isRecording,
-      asrStatus,
-      speechReady,
-      lastAudioChunkAt,
-      lastPartialAt,
-      lastFinalAt,
-      nowMs: clockNow.getTime()
-    })
-
-    setAudioActivityState(prev => prev === nextState ? prev : nextState)
-  }, [asrStatus, clockNow, isRecording, lastAudioChunkAt, lastFinalAt, lastPartialAt, speechReady])
-
-  useEffect(() => {
     return () => {
-      if (asrBootstrapTimerRef.current) {
-        clearTimeout(asrBootstrapTimerRef.current)
-        asrBootstrapTimerRef.current = null
-      }
       closeMediaCapture()
-      void asrConnectionRef.current?.stop()
-      asrConnectionRef.current = null
       void sessionTransportRef.current?.stop({ flush: true })
       sessionTransportRef.current = null
       if (transportStatsIntervalRef.current) {
@@ -359,28 +263,10 @@ function InterviewSession() {
     })
   }
 
-  const resetTranscriptDiagnostics = () => {
-    setSpeechReady(null)
-    setSpeechReadinessReason(null)
-    setSpeechReadyMessage(null)
-    setSpeechDiagnostics(null)
-    setLastPartialAt(null)
-    setLastFinalAt(null)
-    setLastAudioChunkAt(null)
-    setAudioActivityState('idle')
-  }
-
-  const clearAsrBootstrapRetry = () => {
-    if (asrBootstrapTimerRef.current) {
-      clearTimeout(asrBootstrapTimerRef.current)
-      asrBootstrapTimerRef.current = null
-    }
-  }
 
   const startRecording = async () => {
     try {
       resetVisionPipeline()
-      resetTranscriptDiagnostics()
       sessionStartAtMsRef.current = performance.now()
 
       if (sessionId) {
@@ -488,15 +374,6 @@ function InterviewSession() {
         console.warn('Audio analyzer init failed:', audioError)
       }
 
-      setLiveTranscriptLines([])
-      setLiveTranscriptInterim('')
-      warningSeenAtRef.current = {}
-      setWarningHistory([])
-      setAsrError(null)
-      setAsrNotice(null)
-      if (!isMediaPipeReady()) {
-        setAsrNotice('Vision modeli hazirlaniyor. Bu sirada audio transcript baglantisi devam edebilir.')
-      }
       setIsRecording(true)
       isRecordingRef.current = true
       if (liveAnalysisIntervalRef.current) {
@@ -528,20 +405,12 @@ function InterviewSession() {
   }
 
   const stopRecording = async () => {
-    clearAsrBootstrapRetry()
-    asrBootstrapInFlightRef.current = false
     const transportStopPromise = sessionTransportRef.current?.stop({ flush: true }) ?? Promise.resolve()
     sessionTransportRef.current = null
     if (transportStatsIntervalRef.current) {
       clearInterval(transportStatsIntervalRef.current)
       transportStatsIntervalRef.current = null
     }
-
-    const asrStopPromise = asrConnectionRef.current?.stop() ?? Promise.resolve()
-    asrConnectionRef.current = null
-    setAsrStatus('stopped')
-    setAsrNotice(null)
-    resetTranscriptDiagnostics()
 
     // Record question end time (session-relative)
     if (trueSessionStartMsRef.current !== null) {
@@ -588,7 +457,6 @@ function InterviewSession() {
     setIsRecording(false)
     isRecordingRef.current = false
     await transportStopPromise
-    await asrStopPromise
     await recorderStopPromise
   }
 
@@ -715,10 +583,6 @@ function InterviewSession() {
           metricsWindowRef.current.splice(0, metricsWindowRef.current.length - 600)
         }
 
-        // Update coaching hints
-        const hints = generateCoachingHints(metrics)
-        setCoaching(hints)
-        pushWarningHistory(hints)
       }
     } catch (error) {
       console.error('Inference error:', error)
@@ -755,29 +619,6 @@ function InterviewSession() {
     }
   }
 
-  const pushWarningHistory = (hints: CoachingHint[]) => {
-    const now = Date.now()
-    const warningHints = hints.filter(h => h.type === 'warning' || h.type === 'info')
-    if (warningHints.length === 0) return
-
-    const additions: WarningHistoryItem[] = []
-    for (const hint of warningHints) {
-      const key = `${hint.type}:${hint.message}`
-      const lastSeenAt = warningSeenAtRef.current[key] || 0
-      if (now - lastSeenAt < 4000) continue
-      warningSeenAtRef.current[key] = now
-      additions.push({
-        id: `${key}:${now}`,
-        type: hint.type === 'warning' ? 'warning' : 'info',
-        message: hint.message,
-        time: new Date(now).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
-      })
-    }
-
-    if (additions.length > 0) {
-      setWarningHistory(prev => [...additions, ...prev].slice(0, 20))
-    }
-  }
 
   const uploadAndTranscribe = async (chunks: Blob[], _showModal: boolean, questionOrder: number): Promise<boolean> => {
     if (!sessionId || chunks.length === 0) return false
@@ -791,7 +632,6 @@ function InterviewSession() {
       formData.append('file', audioBlob, `answer.${ext}`)
 
       const transcriptResult = await ApiService.transcribeAudio(formData, session?.language || 'tr')
-      setTranscriptData(transcriptResult)
 
       if (transcriptResult.segments?.length > 0 && sessionId) {
         const segments = transcriptResult.segments
@@ -864,7 +704,6 @@ function InterviewSession() {
   }
 
   const handleNext = async () => {
-    // Stop recording and transcribe before moving to next question
     if (isRecording) {
       await stopRecording()
     }
@@ -872,6 +711,15 @@ function InterviewSession() {
     const recordedChunks = [...audioChunksRef.current]
     audioChunksRef.current = []
     const questionOrder = currentQuestionIndex + 1 // 1-based
+
+    if (recordedChunks.length === 0) {
+      const isLastQuestion = currentQuestionIndex >= questions.length - 1
+      const label = isLastQuestion ? 'mülakatı bitirmek' : 'sonraki soruya geçmek'
+      const confirmed = window.confirm(
+        `Soru ${questionOrder} için video kaydı bulunamadı.\nKayıt yapmadan ${label} istediğinizden emin misiniz?`
+      )
+      if (!confirmed) return
+    }
 
     const startMs = questionStartMsRef.current
     const endMs = questionEndMsRef.current
@@ -905,16 +753,7 @@ function InterviewSession() {
   const proceedToNext = () => {
     if (currentQuestionIndex < questions.length - 1) {
       setCurrentQuestionIndex(currentQuestionIndex + 1)
-      setShowTranscript(false)
-      setTranscriptData(null)
       audioChunksRef.current = []
-      setLiveTranscriptLines([])
-      setLiveTranscriptInterim('')
-      setAsrNotice(null)
-      setAsrError(null)
-      resetTranscriptDiagnostics()
-      warningSeenAtRef.current = {}
-      setWarningHistory([])
     } else {
       finalize()
     }
