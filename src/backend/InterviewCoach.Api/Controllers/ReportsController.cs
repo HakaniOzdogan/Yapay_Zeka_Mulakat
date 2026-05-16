@@ -173,6 +173,46 @@ public class ReportsController : ControllerBase
                 }
             }
 
+            // Compute behavioral averages (arousal, stress, smile, isDuchenne)
+            var behavioral = new BehavioralSummaryDto();
+            if (q.StartMs.HasValue && allMetrics.Count > 0)
+            {
+                var endBound = q.EndMs
+                    ?? (i + 1 < questionEntities.Count ? questionEntities[i + 1].StartMs : null);
+                var windowEvents = allMetrics
+                    .Where(e => e.TsMs >= q.StartMs.Value
+                             && (endBound == null || e.TsMs <= endBound.Value))
+                    .ToList();
+
+                var arousalVals = new List<double>();
+                var stressVals = new List<double>();
+                var smileVals = new List<double>();
+                int duchenneTrueCount = 0;
+
+                foreach (var ev in windowEvents)
+                {
+                    try
+                    {
+                        using var doc = JsonDocument.Parse(ev.PayloadJson);
+                        var root = doc.RootElement;
+                        if (root.TryGetProperty("arousal", out var a) && a.ValueKind == JsonValueKind.Number) arousalVals.Add(a.GetDouble());
+                        if (root.TryGetProperty("stress", out var s) && s.ValueKind == JsonValueKind.Number) stressVals.Add(s.GetDouble());
+                        if (root.TryGetProperty("smile", out var sm) && sm.ValueKind == JsonValueKind.Number) smileVals.Add(sm.GetDouble());
+                        if (root.TryGetProperty("isDuchenne", out var d) && d.ValueKind == JsonValueKind.True) duchenneTrueCount++;
+                    }
+                    catch { /* skip malformed */ }
+                }
+
+                behavioral = new BehavioralSummaryDto
+                {
+                    AvgArousal = arousalVals.Count > 0 ? Math.Round(arousalVals.Average(), 1) : 0,
+                    AvgStress = stressVals.Count > 0 ? Math.Round(stressVals.Average(), 1) : 0,
+                    AvgSmile = smileVals.Count > 0 ? Math.Round(smileVals.Average(), 1) : 0,
+                    DuchennePct = windowEvents.Count > 0 ? Math.Round(duchenneTrueCount * 100.0 / windowEvents.Count, 1) : 0,
+                    SampleCount = windowEvents.Count
+                };
+            }
+
             questions.Add(new ReportQuestionDto
             {
                 Id = q.Id,
@@ -184,13 +224,14 @@ public class ReportsController : ControllerBase
                 EndMs = q.EndMs,
                 CreatedAt = q.CreatedAt,
                 Transcript = qTranscript,
-                Metrics = qMetrics
+                Metrics = qMetrics,
+                Behavioral = behavioral
             });
         }
 
-        // Session-level transcript (all segments, no filter)
+        // Session-level transcript (all segments with question order for grouping)
         var transcriptLines = allTranscript
-            .Select(s => new TranscriptLineDto { StartMs = s.StartMs, EndMs = s.EndMs, Text = s.Text })
+            .Select(s => new TranscriptLineDto { StartMs = s.StartMs, EndMs = s.EndMs, Text = s.Text, QuestionOrder = s.QuestionOrder })
             .ToList();
 
         // Session-level derived series (full session)
@@ -294,6 +335,23 @@ public class ReportQuestionDto
 
     /// <summary>Per-question metric time series (eyeContact, posture, fidget, headJitter).</summary>
     public Dictionary<string, List<DerivedPointDto>> Metrics { get; set; } = [];
+
+    /// <summary>Averaged blendshape-derived behavioral signals for this question (arousal, stress, smile, duchennePct).</summary>
+    public BehavioralSummaryDto Behavioral { get; set; } = new();
+}
+
+public class BehavioralSummaryDto
+{
+    /// <summary>Average arousal level 0–100 (facial activation intensity).</summary>
+    public double AvgArousal { get; set; }
+    /// <summary>Average stress signal 0–100 (negative high-arousal composite).</summary>
+    public double AvgStress { get; set; }
+    /// <summary>Average smile intensity 0–100.</summary>
+    public double AvgSmile { get; set; }
+    /// <summary>Percentage of frames where genuine (Duchenne) smile was detected.</summary>
+    public double DuchennePct { get; set; }
+    /// <summary>Number of metric frames used to compute these averages.</summary>
+    public int SampleCount { get; set; }
 }
 
 public class DerivedPointDto
@@ -308,4 +366,5 @@ public class TranscriptLineDto
     public long StartMs { get; set; }
     public long EndMs { get; set; }
     public string Text { get; set; } = string.Empty;
+    public int? QuestionOrder { get; set; }
 }

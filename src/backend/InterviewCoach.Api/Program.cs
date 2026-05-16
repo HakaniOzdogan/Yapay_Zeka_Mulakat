@@ -298,6 +298,7 @@ builder.Services.AddScoped<ILlmOptimizationService, LlmOptimizationService>();
 builder.Services.AddScoped<ILlmCoachingOrchestrator, LlmCoachingOrchestrator>();
 builder.Services.AddScoped<IBatchCoachingJobService, BatchCoachingJobService>();
 builder.Services.AddScoped<ILlmAnalysisService, OpenAiLlmAnalysisService>();
+builder.Services.AddScoped<IAdaptiveQuestionService, AdaptiveQuestionService>();
 builder.Services.AddHostedService<BatchCoachingWorker>();
 builder.Services.AddScoped<IJwtTokenService, JwtTokenService>();
 builder.Services.AddScoped<IPasswordHasher<User>, PasswordHasher<User>>();

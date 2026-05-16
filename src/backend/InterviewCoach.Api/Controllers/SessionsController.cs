@@ -26,19 +26,22 @@ public class SessionsController : ControllerBase
     private readonly ILogger<SessionsController> _logger;
     private readonly ITranscriptRedactionService _redactionService;
     private readonly ScoringProfilesOptions _scoringProfiles;
+    private readonly IWebHostEnvironment _env;
 
     public SessionsController(
         ApplicationDbContext db,
         ApiTelemetry telemetry,
         ILogger<SessionsController> logger,
         ITranscriptRedactionService redactionService,
-        IOptions<ScoringProfilesOptions> scoringProfiles)
+        IOptions<ScoringProfilesOptions> scoringProfiles,
+        IWebHostEnvironment env)
     {
         _db = db;
         _telemetry = telemetry;
         _logger = logger;
         _redactionService = redactionService;
         _scoringProfiles = scoringProfiles.Value;
+        _env = env;
     }
 
     /// <summary>
@@ -182,7 +185,68 @@ public class SessionsController : ControllerBase
         await _db.Sessions.Where(x => x.Id == sessionId).ExecuteDeleteAsync();
 
         await tx.CommitAsync();
+
+        try
+        {
+            var audioDir = Path.Combine(_env.ContentRootPath, "audio", sessionId.ToString());
+            if (Directory.Exists(audioDir))
+                Directory.Delete(audioDir, recursive: true);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to delete audio directory for session {SessionId}", sessionId);
+        }
+
         return NoContent();
+    }
+
+    /// <summary>
+    /// Deletes ALL sessions (and related data) belonging to the current user.
+    /// Returns the count of sessions deleted.
+    /// </summary>
+    [HttpDelete]
+    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> DeleteAllSessions()
+    {
+        if (!User.TryGetCurrentUserId(out var currentUserId))
+            return this.UnauthorizedProblem("Invalid authenticated user context.");
+
+        var sessionIds = await _db.Sessions
+            .Where(s => s.UserId == currentUserId)
+            .Select(s => s.Id)
+            .ToListAsync();
+
+        if (sessionIds.Count == 0)
+            return Ok(new { deleted = 0 });
+
+        await using var tx = await _db.Database.BeginTransactionAsync();
+
+        await _db.MetricEvents.Where(x => sessionIds.Contains(x.SessionId)).ExecuteDeleteAsync();
+        await _db.TranscriptSegments.Where(x => sessionIds.Contains(x.SessionId)).ExecuteDeleteAsync();
+        await _db.ScoreCards.Where(x => sessionIds.Contains(x.SessionId)).ExecuteDeleteAsync();
+        await _db.LlmRuns.Where(x => sessionIds.Contains(x.SessionId)).ExecuteDeleteAsync();
+        await _db.FeedbackItems.Where(x => sessionIds.Contains(x.SessionId)).ExecuteDeleteAsync();
+        await _db.Questions.Where(x => sessionIds.Contains(x.SessionId)).ExecuteDeleteAsync();
+        await _db.Sessions.Where(x => sessionIds.Contains(x.Id)).ExecuteDeleteAsync();
+
+        await tx.CommitAsync();
+
+        foreach (var sessionId in sessionIds)
+        {
+            try
+            {
+                var audioDir = Path.Combine(_env.ContentRootPath, "audio", sessionId.ToString());
+                if (Directory.Exists(audioDir))
+                    Directory.Delete(audioDir, recursive: true);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to delete audio directory for session {SessionId}", sessionId);
+            }
+        }
+
+        return Ok(new { deleted = sessionIds.Count });
     }
 
     /// <summary>

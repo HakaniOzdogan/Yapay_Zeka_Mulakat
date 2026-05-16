@@ -31,6 +31,8 @@ services:
       Llm__ApiKey: ${LLM_API_KEY:-ollama}
       Llm__Model: ${LLM_MODEL:-qwen2.5:7b-instruct}
       Llm__TimeoutSeconds: ${LLM_TIMEOUT_SECONDS:-60}
+    volumes:
+      - audio_data:/app/audio
     depends_on:
       postgres:
         condition: service_healthy
@@ -128,3 +130,4 @@ volumes:
   pgdata:
   ollama_data:
   speech_model_cache:
+  audio_data:

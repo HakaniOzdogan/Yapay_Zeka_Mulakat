@@ -35,6 +35,15 @@ interface TranscriptLine {
   startMs: number
   endMs: number
   text: string
+  questionOrder?: number
+}
+
+interface BehavioralSummary {
+  avgArousal: number
+  avgStress: number
+  avgSmile: number
+  duchennePct: number
+  sampleCount: number
 }
 
 interface ReportQuestion {
@@ -48,6 +57,7 @@ interface ReportQuestion {
   createdAt?: string
   transcript?: TranscriptLine[]
   metrics?: Record<string, DerivedPoint[]>
+  behavioral?: BehavioralSummary
 }
 
 const SCORE_COMPARE_FIELDS: ScoreCompareField[] = [
@@ -516,7 +526,7 @@ function Report() {
 
   const overall = scoreCard.overallScore ?? scoreCard.overall ?? 0
 
-  const transcriptSegments: Array<{ startMs: number; endMs: number; text: string }> =
+  const transcriptSegmentsRaw: Array<{ startMs: number; endMs: number; text: string; questionOrder?: number }> =
     Array.isArray(report.transcript) && report.transcript.length > 0
       ? report.transcript
       : Array.isArray(report.transcriptSegments)
@@ -524,6 +534,22 @@ function Report() {
         : Array.isArray(report.session?.transcriptSegments)
           ? report.session.transcriptSegments
           : []
+
+  // Sort by question order first, then by startMs within each question
+  const transcriptSegments = [...transcriptSegmentsRaw].sort((a, b) => {
+    const qA = a.questionOrder ?? 0
+    const qB = b.questionOrder ?? 0
+    if (qA !== qB) return qA - qB
+    return a.startMs - b.startMs
+  })
+
+  // Group segments by question for display
+  const transcriptByQuestion = transcriptSegments.reduce<Record<number, Array<{ startMs: number; text: string }>>>((acc, seg) => {
+    const q = seg.questionOrder ?? 0
+    if (!acc[q]) acc[q] = []
+    acc[q].push({ startMs: seg.startMs, text: seg.text })
+    return acc
+  }, {})
 
   const transcriptText = transcriptSegments.length > 0
     ? transcriptSegments.map((s) => s.text).join('\n')
@@ -612,6 +638,7 @@ function Report() {
                 const screenSrc = resolveAudioUrl(question.screenAudioUrl)
                 const qTranscript = Array.isArray(question.transcript) ? question.transcript : []
                 const qMetrics = question.metrics ?? {}
+                const behavioral = question.behavioral
 
                 // Build chart data: merge all metric keys by time
                 const chartData = (() => {
@@ -693,6 +720,43 @@ function Report() {
                         )}
                       </div>
 
+                      {/* ── Behavioral signals ── */}
+                      {behavioral && behavioral.sampleCount > 0 && (
+                        <div className="interview-qa-behavioral">
+                          <div className="interview-qa-video-label">Behavioral Signals</div>
+                          <div className="behavioral-bars">
+                            <div className="behavioral-bar-row">
+                              <span className="behavioral-bar-label">Arousal</span>
+                              <div className="behavioral-bar-track">
+                                <div className="behavioral-bar-fill behavioral-bar-fill--arousal" style={{ width: `${Math.min(100, behavioral.avgArousal)}%` }} />
+                              </div>
+                              <span className="behavioral-bar-value">{Math.round(behavioral.avgArousal)}%</span>
+                            </div>
+                            <div className="behavioral-bar-row">
+                              <span className="behavioral-bar-label">Stress</span>
+                              <div className="behavioral-bar-track">
+                                <div className="behavioral-bar-fill behavioral-bar-fill--stress" style={{ width: `${Math.min(100, behavioral.avgStress)}%` }} />
+                              </div>
+                              <span className="behavioral-bar-value">{Math.round(behavioral.avgStress)}%</span>
+                            </div>
+                            <div className="behavioral-bar-row">
+                              <span className="behavioral-bar-label">Smile</span>
+                              <div className="behavioral-bar-track">
+                                <div className="behavioral-bar-fill behavioral-bar-fill--smile" style={{ width: `${Math.min(100, behavioral.avgSmile)}%` }} />
+                              </div>
+                              <span className="behavioral-bar-value">{Math.round(behavioral.avgSmile)}%</span>
+                            </div>
+                            <div className="behavioral-bar-row">
+                              <span className="behavioral-bar-label">Genuine Smile</span>
+                              <div className="behavioral-bar-track">
+                                <div className="behavioral-bar-fill behavioral-bar-fill--duchenne" style={{ width: `${Math.min(100, behavioral.duchennePct)}%` }} />
+                              </div>
+                              <span className="behavioral-bar-value">{Math.round(behavioral.duchennePct)}%</span>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
                       {/* ── Per-soru transkript ── */}
                       {qTranscript.length > 0 && (
                         <div className="interview-qa-transcript">
@@ -726,12 +790,21 @@ function Report() {
               </div>
               <div className="interview-full-transcript-body">
                 {transcriptSegments.length > 0
-                  ? transcriptSegments.map((seg, i) => (
-                      <div key={i} className="transcript-segment-row">
-                        <span className="transcript-timestamp">{formatMs(seg.startMs)}</span>
-                        <span className="transcript-text">{seg.text}</span>
-                      </div>
-                    ))
+                  ? Object.entries(transcriptByQuestion)
+                      .sort(([a], [b]) => Number(a) - Number(b))
+                      .map(([qOrder, segs]) => (
+                        <div key={qOrder} className="transcript-question-block">
+                          <div className="transcript-question-label">
+                            Question {Number(qOrder) > 0 ? qOrder : '—'}
+                          </div>
+                          {segs.map((seg, i) => (
+                            <div key={i} className="transcript-segment-row">
+                              <span className="transcript-timestamp">{formatMs(seg.startMs)}</span>
+                              <span className="transcript-text">{seg.text}</span>
+                            </div>
+                          ))}
+                        </div>
+                      ))
                   : transcriptText
                 }
               </div>

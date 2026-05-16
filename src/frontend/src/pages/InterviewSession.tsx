@@ -13,10 +13,14 @@ import {
   computeHeadJitter,
   computeHeadPose,
   computePostureScore,
-  smooth
+  smooth,
+  parseBlendshapes,
+  computeDerivedSignals
 } from '../vision/features'
+import type { DerivedSignals } from '../vision/types'
 import { Calibration, HeadPose, PoseLandmarks, VisionMetrics } from '../vision/types'
 import { VideoCanvas } from '../components/VideoCanvas'
+import * as RecordingBuffer from '../services/RecordingBuffer'
 import '../styles/pages.css'
 
 const VISION_DEBUG_OVERLAY = import.meta.env.DEV
@@ -101,6 +105,11 @@ function InterviewSession() {
   const [faceLandmarks, setFaceLandmarks] = useState<any[] | undefined>(undefined)
   const [poseLandmarks, setPoseLandmarks] = useState<any[] | undefined>(undefined)
   const [llmInsight, setLlmInsight] = useState<LiveAnalysisResponse | null>(null)
+  const [derivedSignals, setDerivedSignals] = useState<DerivedSignals>({
+    smileIntensity: 0, isDuchenne: false, lipPress: 0,
+    browFurrow: 0, jawTension: 0, arousalIndex: 0,
+    stressSignal: 0, discomfortSignal: 0
+  })
   const [speechReady, setSpeechReady] = useState<boolean | null>(null)
   const [clockNow, setClockNow] = useState(new Date())
   const [visionMetrics, setVisionMetrics] = useState<VisionMetrics>({
@@ -118,7 +127,20 @@ function InterviewSession() {
     dropped: 0,
     failedBatches: 0
   })
+  const [pendingUploads, setPendingUploads] = useState(0)
+  const [pendingRetryCount, setPendingRetryCount] = useState(0)
+  const [isReconnecting, setIsReconnecting] = useState(false)
+  const [isFinalizePending, setIsFinalizePending] = useState(false)
+  const [hasRecordedCurrentQuestion, setHasRecordedCurrentQuestion] = useState(false)
 
+  const pendingUploadsRef = useRef(0)
+  const autoRestartInProgressRef = useRef(false)
+  // Tracks the 1-based question order that the ACTIVE recording belongs to.
+  // Set when recording starts, read in handleNext() to guard against order mismatches.
+  const activeRecordingQuestionOrderRef = useRef<number>(0)
+  // Sequential transcription chain — ensures Q2 transcription only starts after Q1 finishes.
+  // Prevents concurrent Whisper GPU inference that silently drops later requests.
+  const transcriptionChainRef = useRef<Promise<void>>(Promise.resolve())
   const metricsComputerRef = useRef<MetricsComputer | null>(null)
   const audioAnalyzerRef = useRef<AudioAnalyzer | null>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
@@ -144,6 +166,7 @@ function InterviewSession() {
   const sessionTransportRef = useRef<SessionTransport | null>(null)
   const transportStatsIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const sessionStartAtMsRef = useRef<number | null>(null)
+  const adaptiveQuestionsRequestedRef = useRef(false)
   const lastVisionEventSentAtRef = useRef<number>(0)
   const headPoseBufferRef = useRef(new FixedRollingBuffer<HeadPose>(VISION_BUFFER_SIZE))
   const poseBufferRef = useRef(new FixedRollingBuffer<PoseLandmarks>(VISION_BUFFER_SIZE))
@@ -188,6 +211,84 @@ function InterviewSession() {
     const timer = setInterval(() => setClockNow(new Date()), 1000)
     return () => clearInterval(timer)
   }, [])
+
+  // When uploads drain and finalize was deferred, run it now
+  useEffect(() => {
+    if (isFinalizePending && pendingUploads === 0) {
+      setIsFinalizePending(false)
+      void doFinalize()
+    }
+  }, [pendingUploads, isFinalizePending])
+
+  // On mount: retry any pending recordings for this session left from a previous load
+  useEffect(() => {
+    if (!sessionId) return
+    void (async () => {
+      try {
+        const pending = (await RecordingBuffer.getPendingRecordings())
+          .filter(e => e.sessionId === sessionId)
+        for (const entry of pending) {
+          try {
+            if (entry.key.startsWith('screen:')) {
+              await ApiService.uploadQuestionScreen(entry.sessionId, entry.questionOrder, entry.blob, entry.mimeType)
+            } else {
+              await ApiService.uploadQuestionAudio(entry.sessionId, entry.questionOrder, entry.blob, entry.mimeType, entry.startMs, entry.endMs)
+            }
+            await RecordingBuffer.removeRecording(entry.key)
+          } catch {
+            // Will retry on next load
+          }
+        }
+      } catch {
+        // IndexedDB unavailable
+      }
+    })()
+  }, [sessionId])
+
+  // Background upload retry: every 30s re-attempt any IndexedDB-pending recordings
+  useEffect(() => {
+    if (!sessionId) return
+    const id = setInterval(async () => {
+      try {
+        const pending = (await RecordingBuffer.getPendingRecordings())
+          .filter(e => e.sessionId === sessionId)
+        for (const entry of pending) {
+          try {
+            if (entry.key.startsWith('screen:')) {
+              await ApiService.uploadQuestionScreen(entry.sessionId, entry.questionOrder, entry.blob, entry.mimeType)
+            } else {
+              await ApiService.uploadQuestionAudio(entry.sessionId, entry.questionOrder, entry.blob, entry.mimeType, entry.startMs, entry.endMs)
+            }
+            await RecordingBuffer.removeRecording(entry.key)
+            setPendingRetryCount(prev => Math.max(0, prev - 1))
+          } catch { /* will try again next interval */ }
+        }
+      } catch { /* IndexedDB unavailable */ }
+    }, 30_000)
+    return () => clearInterval(id)
+  }, [sessionId])
+
+  // When Q4 starts recording, generate adaptive questions Q5–Q8 in background
+  useEffect(() => {
+    if (
+      currentQuestionIndex === 3 &&
+      isRecording &&
+      sessionId &&
+      !adaptiveQuestionsRequestedRef.current
+    ) {
+      adaptiveQuestionsRequestedRef.current = true
+      void (async () => {
+        try {
+          const newQs = await ApiService.generateAdaptiveQuestions(sessionId)
+          if (newQs.length > 0) {
+            setQuestions(prev => [...prev, ...newQs])
+          }
+        } catch {
+          // non-fatal: interview continues with existing 4 questions
+        }
+      })()
+    }
+  }, [currentQuestionIndex, isRecording, sessionId])
 
   useEffect(() => {
     return () => {
@@ -266,6 +367,10 @@ function InterviewSession() {
 
   const startRecording = async () => {
     try {
+      // Reset chunk buffers so Q2+ recordings start clean
+      audioChunksRef.current = []
+      screenChunksRef.current = []
+
       resetVisionPipeline()
       sessionStartAtMsRef.current = performance.now()
 
@@ -307,15 +412,25 @@ function InterviewSession() {
       }
       questionStartMsRef.current = Math.round(performance.now() - trueSessionStartMsRef.current)
 
-      // Request screen share permission for every question
+      // Request screen share permission for every question.
+      // We request audio:false from getDisplayMedia (system audio is optional/unreliable),
+      // then manually add the microphone track so the screen recording always has the speaker's voice.
       try {
         const screenStream = await navigator.mediaDevices.getDisplayMedia({
           video: { frameRate: { ideal: 15 } },
           audio: false
         })
-        screenStreamRef.current = screenStream
+        // Merge screen video + mic audio into one stream for the screen recorder
+        const micAudioTracks = stream.getAudioTracks()
+        const combinedScreenStream = new MediaStream([
+          ...screenStream.getVideoTracks(),
+          ...micAudioTracks
+        ])
+        screenStreamRef.current = combinedScreenStream
+        // When the user stops screen share, clear the ref
         screenStream.getVideoTracks()[0]?.addEventListener('ended', () => {
           screenStreamRef.current = null
+          screenRecorderRef.current = null
         })
       } catch {
         // Permission denied — continue with webcam only
@@ -340,15 +455,27 @@ function InterviewSession() {
               audioChunksRef.current.push(e.data)
             }
           }
+          mediaRecorderRef.current.onerror = () => {
+            if (isRecordingRef.current) void autoRestartRecording()
+          }
+          stream.getAudioTracks().forEach(track => {
+            track.addEventListener('ended', () => {
+              if (isRecordingRef.current) void autoRestartRecording()
+            })
+          })
           mediaRecorderRef.current.start(1000)
 
-          // Start screen recorder if stream is available
+          // Start screen recorder if stream is available (combined: screen video + mic audio)
           if (screenStreamRef.current) {
             try {
               screenChunksRef.current = []
-              const screenMime = MediaRecorder.isTypeSupported('video/webm;codecs=vp8')
-                ? 'video/webm;codecs=vp8'
-                : 'video/webm'
+              // Prefer a codec that supports both video and audio
+              const screenMimeCandidates = [
+                'video/webm;codecs=vp8,opus',
+                'video/webm;codecs=vp9,opus',
+                'video/webm',
+              ]
+              const screenMime = screenMimeCandidates.find(type => MediaRecorder.isTypeSupported(type)) ?? 'video/webm'
               screenMimeTypeRef.current = screenMime
               const screenRec = new MediaRecorder(screenStreamRef.current, { mimeType: screenMime })
               screenRec.ondataavailable = (e) => {
@@ -376,6 +503,8 @@ function InterviewSession() {
 
       setIsRecording(true)
       isRecordingRef.current = true
+      setHasRecordedCurrentQuestion(true)
+      activeRecordingQuestionOrderRef.current = currentQuestionIndex + 1
       if (liveAnalysisIntervalRef.current) {
         clearInterval(liveAnalysisIntervalRef.current)
       }
@@ -443,6 +572,11 @@ function InterviewSession() {
     }
     screenRecorderRef.current = null
 
+    // Wait for recorders to fully stop and flush final chunks BEFORE closing tracks.
+    // Closing tracks first can prevent the final ondataavailable from firing in some browsers.
+    await recorderStopPromise
+    mediaRecorderRef.current = null
+
     closeMediaCapture()
     setFaceLandmarks(undefined)
     setPoseLandmarks(undefined)
@@ -457,7 +591,6 @@ function InterviewSession() {
     setIsRecording(false)
     isRecordingRef.current = false
     await transportStopPromise
-    await recorderStopPromise
   }
 
   const handleFrame = async (video: HTMLVideoElement, _canvas: HTMLCanvasElement) => {
@@ -470,6 +603,9 @@ function InterviewSession() {
     try {
       const landmarks = await detectLandmarks(video, Date.now())
       const faceLm = landmarks.face?.faceLandmarks?.[0] || []
+      // Parse blendshapes and derived signals (requires outputFaceBlendshapes: true)
+      const blendshapes = parseBlendshapes(landmarks.face?.faceBlendshapes)
+      const derived = computeDerivedSignals(blendshapes)
       const poseRaw = landmarks.pose?.landmarks
       const poseLm = Array.isArray(poseRaw?.[0]) ? poseRaw[0] : Array.isArray(poseRaw) ? poseRaw : []
 
@@ -552,6 +688,11 @@ function InterviewSession() {
         calibrated
       })
 
+      // Update derived signals state every frame (blendshape-based)
+      if (faceLm.length > 0) {
+        setDerivedSignals(derived)
+      }
+
       if (calibrated && sessionElapsedMs - lastVisionEventSentAtRef.current >= VISION_EVENT_INTERVAL_MS) {
         lastVisionEventSentAtRef.current = sessionElapsedMs
         sessionTransportRef.current?.enqueueEvent({
@@ -565,7 +706,12 @@ function InterviewSession() {
             fidget: smoothed.fidget,
             headJitter: smoothed.headJitter,
             eyeOpenness: smoothed.eyeOpenness,
-            calibrated: true
+            calibrated: true,
+            // Blendshape-derived signals
+            arousal: Math.round(derived.arousalIndex * 100),
+            stress: Math.round(derived.stressSignal * 100),
+            isDuchenne: derived.isDuchenne,
+            smile: Math.round(derived.smileIntensity * 100)
           }
         })
       }
@@ -620,6 +766,62 @@ function InterviewSession() {
   }
 
 
+  const autoRestartRecording = async () => {
+    if (autoRestartInProgressRef.current) return
+    autoRestartInProgressRef.current = true
+    setIsReconnecting(true)
+
+    // Stop old recorder without clearing chunks — preserve what was captured so far
+    try { mediaRecorderRef.current?.stop() } catch { /* no-op */ }
+    mediaRecorderRef.current = null
+    closeMediaCapture()
+
+    await new Promise(r => setTimeout(r, 1000))
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: true,
+        video: { width: { ideal: 1280 }, height: { ideal: 720 } }
+      })
+      mediaStreamRef.current = stream
+      setVideoStream(stream)
+
+      const mimeCandidates = ['video/webm;codecs=vp8,opus', 'video/webm', 'video/mp4']
+      const supportedMimeType = mimeCandidates.find(type => MediaRecorder.isTypeSupported(type))
+      const recorder = supportedMimeType
+        ? new MediaRecorder(stream, { mimeType: supportedMimeType })
+        : new MediaRecorder(stream)
+      recordingMimeTypeRef.current = recorder.mimeType || supportedMimeType || 'video/webm'
+
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) audioChunksRef.current.push(e.data)
+      }
+      recorder.onerror = () => {
+        if (isRecordingRef.current) void autoRestartRecording()
+      }
+      stream.getAudioTracks().forEach(track => {
+        track.addEventListener('ended', () => {
+          if (isRecordingRef.current) void autoRestartRecording()
+        })
+      })
+
+      recorder.start(1000)
+      mediaRecorderRef.current = recorder
+
+      try {
+        audioAnalyzerRef.current?.dispose?.()
+        audioAnalyzerRef.current = new AudioAnalyzer(stream)
+      } catch { /* no-op */ }
+    } catch {
+      // getUserMedia failed — recording truly stopped
+      setIsRecording(false)
+      isRecordingRef.current = false
+    }
+
+    autoRestartInProgressRef.current = false
+    setIsReconnecting(false)
+  }
+
   const uploadAndTranscribe = async (chunks: Blob[], _showModal: boolean, questionOrder: number): Promise<boolean> => {
     if (!sessionId || chunks.length === 0) return false
 
@@ -631,7 +833,23 @@ function InterviewSession() {
       const formData = new FormData()
       formData.append('file', audioBlob, `answer.${ext}`)
 
-      const transcriptResult = await ApiService.transcribeAudio(formData, session?.language || 'tr')
+      // Retry up to 2 times: if the speech service is briefly busy (e.g. still processing the
+      // previous question), wait 12 s and try again before giving up.
+      let transcriptResult: any = null
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          // Use 'auto' so Whisper detects the spoken language instead of locking to the session language.
+          transcriptResult = await ApiService.transcribeAudio(formData, 'auto')
+          break
+        } catch (err) {
+          if (attempt < 2) {
+            console.warn(`Transcription attempt ${attempt + 1} failed for Q${questionOrder}, retrying in 12s…`, err)
+            await new Promise(r => setTimeout(r, 12_000))
+          } else {
+            throw err
+          }
+        }
+      }
 
       if (transcriptResult.segments?.length > 0 && sessionId) {
         const segments = transcriptResult.segments
@@ -712,6 +930,15 @@ function InterviewSession() {
     audioChunksRef.current = []
     const questionOrder = currentQuestionIndex + 1 // 1-based
 
+    // Guard: if the recorded chunks belong to a different question than expected, discard them
+    // to prevent audio from one question appearing under another.
+    const recordedFor = activeRecordingQuestionOrderRef.current
+    if (recordedChunks.length > 0 && recordedFor !== 0 && recordedFor !== questionOrder) {
+      console.warn(`Audio order mismatch: chunks recorded for Q${recordedFor} but current question is Q${questionOrder}. Discarding.`)
+      recordedChunks.length = 0
+    }
+    activeRecordingQuestionOrderRef.current = 0
+
     if (recordedChunks.length === 0) {
       const isLastQuestion = currentQuestionIndex >= questions.length - 1
       const label = isLastQuestion ? 'finish the interview' : 'move to the next question'
@@ -724,17 +951,28 @@ function InterviewSession() {
     const startMs = questionStartMsRef.current
     const endMs = questionEndMsRef.current
 
-    if (recordedChunks.length > 0) {
+    if (recordedChunks.length > 0 && sessionId) {
       const mimeType = recordingMimeTypeRef.current || 'video/webm'
       const audioBlob = new Blob(recordedChunks, { type: mimeType })
+      const bufferKey = `audio:${sessionId}:${questionOrder}`
 
-      if (sessionId) {
-        void ApiService.uploadQuestionAudio(sessionId, questionOrder, audioBlob, mimeType, startMs, endMs)
-      }
+      void RecordingBuffer.saveRecording({ key: bufferKey, sessionId, questionOrder, blob: audioBlob, mimeType, startMs, endMs })
 
-      void uploadAndTranscribe(recordedChunks, false, questionOrder).catch(() => {
-        // transcription failure is non-fatal
-      })
+      incPending()
+      void ApiService.uploadQuestionAudio(sessionId, questionOrder, audioBlob, mimeType, startMs, endMs)
+        .then(() => void RecordingBuffer.removeRecording(bufferKey))
+        .catch(err => {
+          console.error(`Audio upload for Q${questionOrder} failed after retries:`, err)
+          setPendingRetryCount(n => n + 1)
+        })
+        .finally(decPending)
+
+      // Chain transcription requests sequentially so Q2 never starts while Q1 is still running.
+      // Concurrent Whisper GPU calls silently fail; the chain ensures only one runs at a time.
+      const chunksSnapshot = [...recordedChunks]
+      transcriptionChainRef.current = transcriptionChainRef.current
+        .then(async () => { await uploadAndTranscribe(chunksSnapshot, false, questionOrder) })
+        .catch(() => { /* non-fatal — transcript missing for this question */ })
     }
 
     // Upload screen recording if available
@@ -743,7 +981,15 @@ function InterviewSession() {
     if (screenChunks.length > 0 && sessionId) {
       const screenMime = screenMimeTypeRef.current || 'video/webm'
       const screenBlob = new Blob(screenChunks, { type: screenMime })
+      const screenKey = `screen:${sessionId}:${questionOrder}`
+
+      void RecordingBuffer.saveRecording({ key: screenKey, sessionId, questionOrder, blob: screenBlob, mimeType: screenMime })
+
+      incPending()
       void ApiService.uploadQuestionScreen(sessionId, questionOrder, screenBlob, screenMime)
+        .then(() => void RecordingBuffer.removeRecording(screenKey))
+        .catch(() => { /* screen failure non-fatal; blob stays in IndexedDB for retry */ })
+        .finally(decPending)
     }
 
     proceedToNext()
@@ -754,12 +1000,23 @@ function InterviewSession() {
     if (currentQuestionIndex < questions.length - 1) {
       setCurrentQuestionIndex(currentQuestionIndex + 1)
       audioChunksRef.current = []
+      setHasRecordedCurrentQuestion(false)
     } else {
       finalize()
     }
   }
 
-  const finalize = async () => {
+  const incPending = () => {
+    pendingUploadsRef.current += 1
+    setPendingUploads(pendingUploadsRef.current)
+  }
+
+  const decPending = () => {
+    pendingUploadsRef.current = Math.max(0, pendingUploadsRef.current - 1)
+    setPendingUploads(pendingUploadsRef.current)
+  }
+
+  const doFinalize = async () => {
     if (!sessionId) return
     try {
       await ApiService.finalizeSession(sessionId)
@@ -769,11 +1026,26 @@ function InterviewSession() {
     navigate(`/report/${sessionId}`)
   }
 
+  const finalize = async () => {
+    if (pendingUploadsRef.current > 0) {
+      setIsFinalizePending(true)
+      return
+    }
+    await doFinalize()
+  }
+
   const handleAbortClick = () => {
-    const confirmed = window.confirm(
-      'Are you sure you want to stop the interview? Unsaved progress will be lost.'
-    )
-    if (!confirmed) return
+    if (pendingUploadsRef.current > 0) {
+      const go = window.confirm(
+        `${pendingUploadsRef.current} recording(s) are still uploading. Leaving now will lose this data. Continue?`
+      )
+      if (!go) return
+    } else {
+      const confirmed = window.confirm(
+        'Are you sure you want to stop the interview? Unsaved progress will be lost.'
+      )
+      if (!confirmed) return
+    }
     void stopRecording()
     navigate('/')
   }
@@ -805,13 +1077,78 @@ function InterviewSession() {
     <div className="page interview-page session-page">
       <div className="session-shell">
         <div className="session-header">
-          <div>
+          {/* Role title */}
+          <div className="session-header-role">
             <span className="eyebrow">Live AI Interview</span>
-            <h1 style={{ marginBottom: 0 }}>{session.selectedRole}</h1>
+            <span className="session-role-name">{session.selectedRole}</span>
           </div>
+
+          {/* Record button + readiness */}
+          <div className="action-bar-section action-bar-section--main">
+            {!isRecording && (
+              <span className="action-bar-ready">
+                {!mediaReady
+                  ? '⏳ Loading model...'
+                  : speechReady === null
+                    ? '⏳ Checking service...'
+                    : '✅ Ready'}
+              </span>
+            )}
+            <button
+              onClick={isRecording ? stopRecording : startRecording}
+              disabled={!isRecording && (!mediaReady || speechReady === null)}
+              className={`btn ${isRecording ? 'btn-danger' : 'btn-primary'}`}
+            >
+              {isRecording
+                ? '⏹ Stop Recording'
+                : !mediaReady
+                  ? 'Loading Model...'
+                  : speechReady === null
+                    ? 'Checking Service...'
+                    : '⏺ Start Recording'}
+            </button>
+          </div>
+
+          {/* Service status + live metrics */}
+          <div className="action-bar-section action-bar-section--status">
+            <div className="status-row">
+              <span className="status-label">Video</span>
+              <span className={`status-dot ${mediaReady ? 'dot-ok' : 'dot-loading'}`}>
+                {mediaReady ? '● Active' : '◌ Loading'}
+              </span>
+            </div>
+            <div className="status-row">
+              <span className="status-label">Audio</span>
+              <span className={`status-dot ${speechReady ? 'dot-ok' : 'dot-warn'}`}>
+                {speechReady ? '● Ready' : '◌ Waiting'}
+              </span>
+            </div>
+            {isRecording && (
+              <>
+                <div className="status-row">
+                  <span className="status-label">Eye Contact</span>
+                  <span className="status-value-sm">{eyeContactPercent}%</span>
+                </div>
+                <div className="status-row">
+                  <span className="status-label">Posture</span>
+                  <span className="status-value-sm">{Math.round(currentMetrics.posture)}%</span>
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* Timer + navigation + stop */}
           <div className="session-header-meta">
-            <span className="status-pill">{isRecording ? 'Live session' : 'Ready'}</span>
             <span className="session-timer">{formattedElapsed}</span>
+            <button onClick={handleNext} disabled={uploading || isFinalizePending} className="btn btn-primary btn-sm">
+              {isFinalizePending
+                ? `Saving... (${pendingUploads})`
+                : uploading
+                  ? 'Processing...'
+                  : currentQuestionIndex < questions.length - 1
+                    ? 'Next Question →'
+                    : 'Finish Interview ✓'}
+            </button>
             <button
               type="button"
               className="btn btn-sm btn-danger"
@@ -822,9 +1159,29 @@ function InterviewSession() {
           </div>
         </div>
 
+        {isReconnecting && (
+          <div className="upload-error-banner upload-error-banner--reconnecting">
+            Reconnecting microphone...
+          </div>
+        )}
+        {!isReconnecting && pendingRetryCount > 0 && (
+          <div className="upload-error-banner upload-error-banner--pending">
+            Upload pending — retrying automatically ({pendingRetryCount} file{pendingRetryCount > 1 ? 's' : ''})
+          </div>
+        )}
+
+        {/* AI live insight (shown when available) */}
+        {llmInsight && (
+          <div className="action-bar-insight">
+            <strong>AI Insight</strong> — {llmInsight.summary}
+            {llmInsight.risks?.length > 0 && <span> · ⚠ {llmInsight.risks[0]}</span>}
+            {llmInsight.suggestions?.length > 0 && <span> · 💡 {llmInsight.suggestions[0]}</span>}
+          </div>
+        )}
+
         <div className="interview-layout">
           <div className="question-column">
-            <section className="question-card">
+            <section className={`question-card${!isRecording && !hasRecordedCurrentQuestion ? ' question-card--unrecorded' : ''}`}>
               <div className="question-meta">Question {currentQuestionIndex + 1} / {questions.length || 1}</div>
               {currentQuestion && <h2>{currentQuestion.prompt}</h2>}
               <div className="question-tags">
@@ -832,6 +1189,11 @@ function InterviewSession() {
                 <span className="tag">{session.language === 'en' ? 'English' : 'Turkish'}</span>
                 <span className="tag">{isRecording ? 'Live Feedback' : 'Waiting to Start'}</span>
               </div>
+              {!isRecording && !hasRecordedCurrentQuestion && (
+                <div className="question-no-recording-notice">
+                  ⚠ Recording not started — click Start Recording before answering
+                </div>
+              )}
             </section>
           </div>
 
@@ -958,84 +1320,6 @@ function InterviewSession() {
           </div>
         </section>
 
-        {/* ── BOTTOM ACTION BAR ── */}
-        <div className="interview-action-bar">
-
-          {/* Record button + readiness message */}
-          <div className="action-bar-section action-bar-section--main">
-            {!isRecording && (
-              <span className="action-bar-ready">
-                {!mediaReady
-                  ? '⏳ Loading model...'
-                  : speechReady === null
-                    ? '⏳ Checking service...'
-                    : '✅ Ready'}
-              </span>
-            )}
-            <button
-              onClick={isRecording ? stopRecording : startRecording}
-              disabled={!isRecording && (!mediaReady || speechReady === null)}
-              className={`btn ${isRecording ? 'btn-danger' : 'btn-primary'}`}
-            >
-              {isRecording
-                ? '⏹ Stop Recording'
-                : !mediaReady
-                  ? 'Loading Model...'
-                  : speechReady === null
-                    ? 'Checking Service...'
-                    : '⏺ Start Recording'}
-            </button>
-          </div>
-
-          {/* Service status indicators */}
-          <div className="action-bar-section action-bar-section--status">
-            <div className="status-row">
-              <span className="status-label">Video</span>
-              <span className={`status-dot ${mediaReady ? 'dot-ok' : 'dot-loading'}`}>
-                {mediaReady ? '● Active' : '◌ Loading'}
-              </span>
-            </div>
-            <div className="status-row">
-              <span className="status-label">Audio</span>
-              <span className={`status-dot ${speechReady ? 'dot-ok' : 'dot-warn'}`}>
-                {speechReady ? '● Ready' : '◌ Waiting'}
-              </span>
-            </div>
-            {isRecording && (
-              <>
-                <div className="status-row">
-                  <span className="status-label">Eye Contact</span>
-                  <span className="status-value-sm">{eyeContactPercent}%</span>
-                </div>
-                <div className="status-row">
-                  <span className="status-label">Posture</span>
-                  <span className="status-value-sm">{Math.round(currentMetrics.posture)}%</span>
-                </div>
-              </>
-            )}
-          </div>
-
-          {/* Navigasyon */}
-          <div className="action-bar-section action-bar-section--nav">
-            <button onClick={handleNext} disabled={uploading} className="btn btn-primary">
-              {uploading
-                ? 'Processing...'
-                : currentQuestionIndex < questions.length - 1
-                  ? 'Next Question →'
-                  : 'Finish Interview ✓'}
-            </button>
-          </div>
-
-          {/* AI live insight (bottom row, if available) */}
-          {llmInsight && (
-            <div className="action-bar-insight">
-              <strong>AI Insight</strong> — {llmInsight.summary}
-              {llmInsight.risks?.length > 0 && <span> · ⚠ {llmInsight.risks[0]}</span>}
-              {llmInsight.suggestions?.length > 0 && <span> · 💡 {llmInsight.suggestions[0]}</span>}
-            </div>
-          )}
-
-        </div>
       </div>
 
 

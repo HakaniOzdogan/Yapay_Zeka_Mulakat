@@ -13,8 +13,12 @@ interface SessionItem {
   overallScore?: number | null
 }
 
-function isSessionReady(status?: string): boolean {
-  return (status || '').toLowerCase() === 'completed'
+type SessionDisplayState = 'ready' | 'processing' | 'incomplete'
+
+function getSessionState(status?: string, createdAt?: string): SessionDisplayState {
+  if ((status || '').toLowerCase() === 'completed') return 'ready'
+  const ageMs = Date.now() - new Date(createdAt || 0).getTime()
+  return ageMs < 10 * 60 * 1000 ? 'processing' : 'incomplete'
 }
 
 function ReportsList() {
@@ -23,6 +27,7 @@ function ReportsList() {
   const [sessions, setSessions] = useState<SessionItem[]>([])
   const [deleteTarget, setDeleteTarget] = useState<SessionItem | null>(null)
   const [deleteBusy, setDeleteBusy] = useState(false)
+  const [deleteAllBusy, setDeleteAllBusy] = useState(false)
   const [message, setMessage] = useState('')
   const [errorMessage, setErrorMessage] = useState('')
 
@@ -30,9 +35,9 @@ function ReportsList() {
     void load()
   }, [])
 
-  // Poll every 5 s while any session is still processing
+  // Poll every 5 s only while genuinely-processing sessions exist (< 10 min old, not completed)
   useEffect(() => {
-    const hasProcessing = sessions.some(s => !isSessionReady(s.status))
+    const hasProcessing = sessions.some(s => getSessionState(s.status, s.createdAt) === 'processing')
     if (!hasProcessing) return
     const id = setInterval(() => { void load() }, 5000)
     return () => clearInterval(id)
@@ -50,6 +55,29 @@ function ReportsList() {
     } finally {
       setLoading(false)
     }
+  }
+
+  const onDeleteAll = async () => {
+    const confirmed = window.confirm(
+      'Delete ALL your sessions? This removes every session in your account and cannot be undone.'
+    )
+    if (!confirmed) return
+
+    setDeleteAllBusy(true)
+    setErrorMessage('')
+
+    try {
+      const result = await ApiService.deleteAllSessions()
+      setMessage(`Deleted ${result.deleted} session(s).`)
+    } catch (error) {
+      console.error('Delete all failed:', error)
+      setErrorMessage('Failed to delete sessions. Please try again.')
+    } finally {
+      setDeleteAllBusy(false)
+    }
+
+    await load()
+    window.setTimeout(() => setMessage(''), 3000)
   }
 
   const onAskDelete = (session: SessionItem) => {
@@ -107,6 +135,19 @@ function ReportsList() {
         {message && <p className="reports-inline-success" data-testid="sessions-success-message">{message}</p>}
         {errorMessage && <p className="reports-inline-error" data-testid="sessions-error-message">{errorMessage}</p>}
 
+        {!loading && sessions.length > 0 && (
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+            <button
+              type="button"
+              className="btn btn-secondary btn-danger"
+              onClick={onDeleteAll}
+              disabled={deleteAllBusy}
+            >
+              {deleteAllBusy ? 'Deleting...' : `Delete All (${sessions.length})`}
+            </button>
+          </div>
+        )}
+
         {loading && <p className="loading-text">Loading reports...</p>}
 
         {!loading && sessions.length === 0 && (
@@ -118,35 +159,37 @@ function ReportsList() {
         {!loading && sessions.length > 0 && (
           <div className="reports-grid">
             {sessions.map((s) => {
-              const ready = isSessionReady(s.status)
+              const state = getSessionState(s.status, s.createdAt)
               return (
-                <article key={s.id} className={`report-item-card${ready ? '' : ' report-item-card--processing'}`} data-testid={`session-card-${s.id}`}>
+                <article key={s.id} className={`report-item-card${state === 'ready' ? '' : ' report-item-card--processing'}`} data-testid={`session-card-${s.id}`}>
                   <div className="report-item-top">
                     <h3>{s.selectedRole || s.role || '-'}</h3>
-                    {ready ? (
+                    {state === 'ready' && (
                       <span className="report-status status-completed">Ready</span>
-                    ) : (
+                    )}
+                    {state === 'processing' && (
                       <span className="report-status status-processing">
                         <span className="processing-dot" />
                         Processing...
                       </span>
+                    )}
+                    {state === 'incomplete' && (
+                      <span className="report-status status-incomplete">Incomplete</span>
                     )}
                   </div>
                   <p className="report-item-meta">
                     {new Date(s.createdAt).toLocaleString('en-US')} | {(s.language || '-').toUpperCase()}
                   </p>
                   <div className="report-item-score">
-                    {ready ? `Score: ${s.overallScore ?? '-'}` : 'Report is being prepared, please wait...'}
+                    {state === 'ready' ? `Score: ${s.overallScore ?? '-'}` : state === 'processing' ? 'Report is being prepared, please wait...' : 'Session incomplete — report may be partial.'}
                   </div>
                   <div className="report-item-actions">
                     <button
                       type="button"
                       className="btn btn-primary"
                       onClick={() => navigate(`/report/${s.id}`)}
-                      disabled={!ready}
-                      title={ready ? undefined : 'Report not ready yet'}
                     >
-                      {ready ? 'Open Report' : 'Processing...'}
+                      Open Report
                     </button>
                     <button
                       type="button"

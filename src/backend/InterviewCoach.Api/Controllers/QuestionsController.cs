@@ -1,5 +1,6 @@
 using InterviewCoach.Domain;
 using InterviewCoach.Infrastructure;
+using InterviewCoach.Api.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -11,10 +12,12 @@ namespace InterviewCoach.Api.Controllers;
 public class QuestionsController : ControllerBase
 {
     private readonly ApplicationDbContext _db;
+    private readonly IAdaptiveQuestionService _adaptive;
 
-    public QuestionsController(ApplicationDbContext db)
+    public QuestionsController(ApplicationDbContext db, IAdaptiveQuestionService adaptive)
     {
         _db = db;
+        _adaptive = adaptive;
     }
 
     // Default questions by role (MVP Turkish)
@@ -95,6 +98,47 @@ public class QuestionsController : ControllerBase
             .ToListAsync();
 
         return Ok(questions.Select(ToDto).ToList());
+    }
+
+    /// <summary>
+    /// Generates 4 adaptive questions (orders 5–8) based on answers to Q1–Q3.
+    /// Idempotent: returns existing adaptive questions if already generated.
+    /// </summary>
+    [Authorize]
+    [HttpPost("adaptive")]
+    public async Task<ActionResult<List<QuestionDto>>> GenerateAdaptiveQuestions(
+        Guid sessionId,
+        CancellationToken cancellationToken)
+    {
+        var session = await _db.Sessions.FindAsync([sessionId], cancellationToken);
+        if (session == null)
+            return NotFound();
+
+        // Idempotent: return existing adaptive questions if already generated
+        var existing = await _db.Questions
+            .Where(q => q.SessionId == sessionId && q.Order >= 5)
+            .OrderBy(q => q.Order)
+            .ToListAsync(cancellationToken);
+
+        if (existing.Count > 0)
+            return Ok(existing.Select(ToDto).ToList());
+
+        var prompts = await _adaptive.GenerateAsync(sessionId, cancellationToken);
+        if (prompts.Count == 0)
+            return StatusCode(502, new { error = "Adaptive question generation returned no results." });
+
+        var startOrder = 5;
+        var newQuestions = prompts.Select((prompt, i) => new Question
+        {
+            SessionId = sessionId,
+            Order = startOrder + i,
+            Prompt = prompt
+        }).ToList();
+
+        _db.Questions.AddRange(newQuestions);
+        await _db.SaveChangesAsync(cancellationToken);
+
+        return Ok(newQuestions.Select(ToDto).ToList());
     }
 
     /// <summary>

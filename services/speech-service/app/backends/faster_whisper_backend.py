@@ -101,7 +101,7 @@ class FasterWhisperBackend(BaseAsrBackend):
         audio_bytes: bytes,
         *,
         model_name: str,
-        language: str,
+        language: str | None,  # None → Whisper auto-detects the language
         task: str,
         use_vad: bool,
         start_ms: int,
@@ -253,7 +253,7 @@ class FasterWhisperBackend(BaseAsrBackend):
         audio_bytes: bytes,
         *,
         model_name: str,
-        language: str,
+        language: str | None,
         task: str,
         use_vad: bool,
         start_ms: int,

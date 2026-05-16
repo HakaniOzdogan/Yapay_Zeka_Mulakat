@@ -20,7 +20,9 @@ export async function initMediaPipe() {
         modelAssetPath: '/models/face_landmarker.task'
       },
       runningMode: 'VIDEO',
-      numFaces: 1
+      numFaces: 1,
+      outputFaceBlendshapes: true,
+      outputFacialTransformationMatrixes: true
     });
 
     poseLandmarker = await PoseLandmarker.createFromOptions(vision, {

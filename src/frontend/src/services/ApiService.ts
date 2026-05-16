@@ -372,6 +372,18 @@ class ApiService {
     return response.data as BatchCoachingJobDetails
   }
 
+  private async withRetry<T>(fn: () => Promise<T>, retries = 3): Promise<T> {
+    let lastErr: unknown
+    for (let i = 0; i < retries; i++) {
+      try { return await fn() }
+      catch (err) {
+        lastErr = err
+        if (i < retries - 1) await new Promise(r => setTimeout(r, 1000 * 2 ** i))
+      }
+    }
+    throw lastErr
+  }
+
   private tryParseCoachingPayload(input: unknown): LlmCoachingResponse | null {
     if (!input) {
       return null
@@ -460,6 +472,11 @@ class ApiService {
     await this.client.delete(`/sessions/${sessionId}`)
   }
 
+  async deleteAllSessions(): Promise<{ deleted: number }> {
+    const response = await this.client.delete('/sessions')
+    return response.data as { deleted: number }
+  }
+
   // Question endpoints
   async seedQuestions(sessionId: string) {
     const response = await this.client.post(`/sessions/${sessionId}/questions`)
@@ -484,8 +501,9 @@ class ApiService {
     return response.data
   }
 
-  // Speech-to-text
-  async transcribeAudio(formData: FormData, language: string = 'tr') {
+  // Speech-to-text — language='auto' lets Whisper detect the language automatically.
+  // Pass an explicit BCP-47 code (e.g. 'tr', 'en') only when you are certain of the language.
+  async transcribeAudio(formData: FormData, language: string = 'auto') {
     const response = await axios.post(
       `${SPEECH_SERVICE_URL}/transcribe?language=${language}&compute_stats=true`,
       formData,
@@ -497,7 +515,7 @@ class ApiService {
     return response.data
   }
 
-  // Upload webcam recording for a specific question
+  // Upload webcam recording for a specific question (throws on failure after 3 retries)
   async uploadQuestionAudio(
     sessionId: string,
     questionOrder: number,
@@ -505,49 +523,39 @@ class ApiService {
     mimeType: string,
     startMs?: number,
     endMs?: number
-  ): Promise<{ audioUrl: string } | null> {
-    try {
-      const ext = mimeType.includes('ogg') ? 'ogg'
-        : mimeType.includes('mpeg') ? 'mp3'
-        : mimeType.includes('mp4') ? 'mp4'
-        : 'webm'
-      const formData = new FormData()
-      formData.append('file', audioBlob, `q${questionOrder}.${ext}`)
-      if (startMs != null) formData.append('startMs', String(Math.round(startMs)))
-      if (endMs != null) formData.append('endMs', String(Math.round(endMs)))
-      const response = await this.client.post(
-        `/sessions/${sessionId}/questions/${questionOrder}/audio`,
-        formData,
-        { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 120000 }
-      )
-      return response.data as { audioUrl: string }
-    } catch (err) {
-      console.warn('Audio upload failed:', err)
-      return null
-    }
+  ): Promise<{ audioUrl: string }> {
+    const ext = mimeType.includes('ogg') ? 'ogg'
+      : mimeType.includes('mpeg') ? 'mp3'
+      : mimeType.includes('mp4') ? 'mp4'
+      : 'webm'
+    const formData = new FormData()
+    formData.append('file', audioBlob, `q${questionOrder}.${ext}`)
+    if (startMs != null) formData.append('startMs', String(Math.round(startMs)))
+    if (endMs != null) formData.append('endMs', String(Math.round(endMs)))
+    const response = await this.withRetry(() => this.client.post(
+      `/sessions/${sessionId}/questions/${questionOrder}/audio`,
+      formData,
+      { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 120000 }
+    ))
+    return response.data as { audioUrl: string }
   }
 
-  // Upload screen recording for a specific question
+  // Upload screen recording for a specific question (throws on failure after 3 retries)
   async uploadQuestionScreen(
     sessionId: string,
     questionOrder: number,
     screenBlob: Blob,
     mimeType: string
-  ): Promise<{ audioUrl: string } | null> {
-    try {
-      const ext = mimeType.includes('mp4') ? 'mp4' : 'webm'
-      const formData = new FormData()
-      formData.append('file', screenBlob, `q${questionOrder}_screen.${ext}`)
-      const response = await this.client.post(
-        `/sessions/${sessionId}/questions/${questionOrder}/screen`,
-        formData,
-        { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 120000 }
-      )
-      return response.data as { audioUrl: string }
-    } catch (err) {
-      console.warn('Screen upload failed:', err)
-      return null
-    }
+  ): Promise<{ audioUrl: string }> {
+    const ext = mimeType.includes('mp4') ? 'mp4' : 'webm'
+    const formData = new FormData()
+    formData.append('file', screenBlob, `q${questionOrder}_screen.${ext}`)
+    const response = await this.withRetry(() => this.client.post(
+      `/sessions/${sessionId}/questions/${questionOrder}/screen`,
+      formData,
+      { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 120000 }
+    ))
+    return response.data as { audioUrl: string }
   }
 
   async postSessionEventsBatch(sessionId: string, events: MetricEventIngestDto[]) {
@@ -573,6 +581,16 @@ class ApiService {
       transcriptData
     )
     return response.data
+  }
+
+  // Generate adaptive questions (Q5–Q8) based on Q1–Q3 answers
+  async generateAdaptiveQuestions(sessionId: string): Promise<any[]> {
+    const response = await this.client.post(
+      `/sessions/${sessionId}/questions/adaptive`,
+      {},
+      { timeout: 60000 }
+    )
+    return Array.isArray(response.data) ? response.data : []
   }
 
   // Finalize session

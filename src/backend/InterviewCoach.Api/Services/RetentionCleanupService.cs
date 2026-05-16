@@ -1,5 +1,6 @@
 using InterviewCoach.Infrastructure;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 
 namespace InterviewCoach.Api.Services;
@@ -15,17 +16,20 @@ public class RetentionCleanupService : IRetentionCleanupService
     private readonly IOptionsMonitor<RetentionOptions> _optionsMonitor;
     private readonly IRetentionRunState _state;
     private readonly ILogger<RetentionCleanupService> _logger;
+    private readonly string _contentRootPath;
 
     public RetentionCleanupService(
         IServiceScopeFactory scopeFactory,
         IOptionsMonitor<RetentionOptions> optionsMonitor,
         IRetentionRunState state,
-        ILogger<RetentionCleanupService> logger)
+        ILogger<RetentionCleanupService> logger,
+        IHostEnvironment env)
     {
         _scopeFactory = scopeFactory;
         _optionsMonitor = optionsMonitor;
         _state = state;
         _logger = logger;
+        _contentRootPath = env.ContentRootPath;
     }
 
     public async Task<RetentionRunSummary> RunOnceAsync(bool respectEnabled, CancellationToken cancellationToken = default)
@@ -81,6 +85,18 @@ public class RetentionCleanupService : IRetentionCleanupService
             summary.AddRows("Sessions", await db.Sessions.Where(x => x.Id == sessionId).ExecuteDeleteAsync(cancellationToken));
 
             await tx.CommitAsync(cancellationToken);
+
+            try
+            {
+                var audioDir = Path.Combine(_contentRootPath, "audio", sessionId.ToString());
+                if (Directory.Exists(audioDir))
+                    Directory.Delete(audioDir, recursive: true);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Retention: failed to delete audio directory for session {SessionId}", sessionId);
+            }
+
             summary.SessionsDeleted++;
         }
 

@@ -101,6 +101,10 @@ _model_loaded = False
 _startup_state = "starting"
 _model_failure: str | None = None
 
+# Limit concurrent Whisper GPU inference to 1.
+# Concurrent GPU calls cause CUDA contention; the second call silently fails or times out.
+_transcribe_semaphore = asyncio.Semaphore(1)
+
 
 # ======================================================================
 # Model yükleme
@@ -221,13 +225,14 @@ async def health_diagnostics() -> JSONResponse:
 @app.post("/transcribe")
 async def transcribe_upload(
     file: UploadFile = File(...),
-    language: str = Query("tr", alias="language"),
+    language: str = Query("auto", alias="language"),
 ) -> JSONResponse:
     await _ensure_model()
 
-    lang = (language or "tr").strip().lower()
-    if lang not in {"en", "tr"}:
-        raise HTTPException(400, f"Desteklenmeyen dil: '{language}'. 'tr' veya 'en' kullanın.")
+    # "auto" or empty → let Whisper detect the language automatically.
+    # Explicit codes (e.g. "tr", "en") are passed through as hints.
+    raw = (language or "auto").strip().lower()
+    lang: str | None = None if raw == "auto" else raw
 
     if not _model_loaded or not _asr.is_model_ready(cfg.model_name):
         raise HTTPException(503, "Konuşma modeli henüz hazır değil.")
@@ -244,18 +249,19 @@ async def transcribe_upload(
     duration_ms = max(1, int(round((len(pcm) / BYTES_PER_SECOND) * 1000)))
 
     try:
-        result = await asyncio.wait_for(
-            _asr.transcribe(
-                pcm,
-                model_name=cfg.model_name,
-                language=lang,
-                task="transcribe",
-                use_vad=False,
-                start_ms=0,
-                end_ms=duration_ms,
-            ),
-            timeout=cfg.transcribe_timeout_sec,
-        )
+        async with _transcribe_semaphore:
+            result = await asyncio.wait_for(
+                _asr.transcribe(
+                    pcm,
+                    model_name=cfg.model_name,
+                    language=lang,   # None → Whisper auto-detects
+                    task="transcribe",
+                    use_vad=False,
+                    start_ms=0,
+                    end_ms=duration_ms,
+                ),
+                timeout=cfg.transcribe_timeout_sec,
+            )
     except asyncio.TimeoutError as exc:
         raise HTTPException(504, "Transkripsiyon zaman aşımına uğradı.") from exc
     except TranscriptionError as exc:

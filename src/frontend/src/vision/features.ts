@@ -1,4 +1,4 @@
-import { Calibration, FaceLandmarks, HeadPose, PoseLandmarks } from './types'
+import { BlendshapeVector, Calibration, DerivedSignals, FaceLandmarks, HeadPose, PoseLandmarks } from './types'
 
 function dist2d(a?: { x: number; y: number }, b?: { x: number; y: number }): number {
   if (!a || !b) return 0
@@ -165,4 +165,102 @@ export function computeEyeContactScore(headPose: HeadPose, calibration: Calibrat
   const combinedPenalty = yawPenalty * 0.65 + pitchPenalty * 0.35
 
   return clamp01(1 - combinedPenalty)
+}
+
+/**
+ * Extract head pose (yaw/pitch/roll in degrees) from a 4×4 row-major transformation
+ * matrix returned by MediaPipe's outputFacialTransformationMatrixes.
+ * Falls back to landmark-based pose if matrix is unavailable.
+ */
+export function extractHeadPoseFromMatrix(matrix: number[]): { yaw: number; pitch: number; roll: number } {
+  // 4x4 row-major: [r00,r01,r02,tx, r10,r11,r12,ty, r20,r21,r22,tz, 0,0,0,1]
+  const r = matrix
+  const sy = Math.sqrt(r[0] * r[0] + r[4] * r[4])
+  const singular = sy < 1e-6
+  const toDeg = (rad: number) => rad * (180 / Math.PI)
+
+  if (!singular) {
+    return {
+      pitch: toDeg(Math.atan2(r[9], r[10])),
+      yaw: toDeg(Math.atan2(-r[8], sy)),
+      roll: toDeg(Math.atan2(r[4], r[0]))
+    }
+  }
+  return {
+    pitch: toDeg(Math.atan2(-r[6], r[5])),
+    yaw: toDeg(Math.atan2(-r[8], sy)),
+    roll: 0
+  }
+}
+
+/**
+ * Parse the faceBlendshapes output from MediaPipe into a flat key→score map.
+ */
+export function parseBlendshapes(faceBlendshapes: any): BlendshapeVector {
+  const result: BlendshapeVector = {}
+  if (!faceBlendshapes || !Array.isArray(faceBlendshapes) || faceBlendshapes.length === 0) return result
+  const categories = faceBlendshapes[0]?.categories ?? []
+  for (const cat of categories) {
+    if (cat?.categoryName) result[cat.categoryName as keyof BlendshapeVector] = cat.score ?? 0
+  }
+  return result
+}
+
+/**
+ * Compute derived behavioral signals from blendshape values.
+ * All output values are in [0, 1].
+ */
+export function computeDerivedSignals(bs: BlendshapeVector): DerivedSignals {
+  const g = (k: keyof BlendshapeVector) => bs[k] ?? 0
+
+  const smileL = g('mouthSmileLeft')
+  const smileR = g('mouthSmileRight')
+  const smileIntensity = (smileL + smileR) / 2
+
+  const cheekL = g('cheekSquintLeft')
+  const cheekR = g('cheekSquintRight')
+  const cheekSquint = (cheekL + cheekR) / 2
+  // Duchenne: genuine smile activates cheek muscles
+  const isDuchenne = smileIntensity > 0.3 && cheekSquint > 0.2
+
+  const lipPress = (g('mouthPressLeft') + g('mouthPressRight')) / 2
+  const browFurrow = (g('browDownLeft') + g('browDownRight')) / 2
+  const browRaise = (g('browInnerUp') + g('browOuterUpLeft') + g('browOuterUpRight')) / 3
+  const eyeWide = (g('eyeWideLeft') + g('eyeWideRight')) / 2
+  const eyeSquint = (g('eyeSquintLeft') + g('eyeSquintRight')) / 2
+  const noseSneer = (g('noseSneerLeft') + g('noseSneerRight')) / 2
+  const mouthFrown = (g('mouthFrownLeft') + g('mouthFrownRight')) / 2
+  const jawTension = g('jawOpen')
+
+  // Arousal: overall facial activation (high = expressive, low = flat)
+  const arousalIndex = clamp01(
+    browFurrow * 0.15 +
+    browRaise  * 0.15 +
+    eyeWide    * 0.15 +
+    lipPress   * 0.15 +
+    jawTension * 0.10 +
+    noseSneer  * 0.10 +
+    eyeSquint  * 0.10 +
+    smileIntensity * 0.10
+  )
+
+  // Stress: negative high-arousal composite
+  const stressSignal = clamp01(
+    lipPress   * 0.25 +
+    browFurrow * 0.20 +
+    jawTension * 0.15 +
+    noseSneer  * 0.15 +
+    eyeSquint  * 0.10 +
+    Math.abs(g('browDownLeft') - g('browDownRight')) * 0.15
+  )
+
+  // Discomfort: nose sneer + mouth frown + lip press + brow furrow
+  const discomfortSignal = clamp01(
+    noseSneer  * 0.30 +
+    mouthFrown * 0.30 +
+    lipPress   * 0.20 +
+    browFurrow * 0.20
+  )
+
+  return { smileIntensity, isDuchenne, lipPress, browFurrow, jawTension, arousalIndex, stressSignal, discomfortSignal }
 }
