@@ -218,7 +218,8 @@ function Report() {
         const ext = url.endsWith('.mp4') ? 'mp4' : 'webm'
         const formData = new FormData()
         formData.append('file', audioBlob, `answer.${ext}`)
-        const result = await ApiService.transcribeAudio(formData, 'auto', 'accurate')
+        const sessionLang = (reportData?.session?.language === 'en') ? 'en' : 'tr'
+        const result = await ApiService.transcribeAudio(formData, sessionLang, 'accurate')
         const segs = (result.segments ?? []).filter((s: any) => s.text?.trim())
         if (segs.length > 0) {
           const batch = segs.map((s: any) => ({

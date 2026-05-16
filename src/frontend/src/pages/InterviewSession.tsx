@@ -836,11 +836,11 @@ function InterviewSession() {
 
       // Retry up to 2 times: if the speech service is briefly busy (e.g. still processing the
       // previous question), wait 12 s and try again before giving up.
+      const sessionLang = (session?.language === 'en') ? 'en' : 'tr'
       let transcriptResult: any = null
       for (let attempt = 0; attempt < 3; attempt++) {
         try {
-          // Use 'auto' so Whisper detects the spoken language instead of locking to the session language.
-          transcriptResult = await ApiService.transcribeAudio(formData, 'auto')
+          transcriptResult = await ApiService.transcribeAudio(formData, sessionLang)
           break
         } catch (err) {
           if (attempt < 2) {
