@@ -502,10 +502,10 @@ class ApiService {
   }
 
   // Speech-to-text — language='auto' lets Whisper detect the language automatically.
-  // Pass an explicit BCP-47 code (e.g. 'tr', 'en') only when you are certain of the language.
-  async transcribeAudio(formData: FormData, language: string = 'auto') {
+  // quality='accurate' uses beam_size=5/best_of=5 for a slower but more thorough pass.
+  async transcribeAudio(formData: FormData, language: string = 'auto', quality: 'fast' | 'accurate' = 'fast') {
     const response = await axios.post(
-      `${SPEECH_SERVICE_URL}/transcribe?language=${language}&compute_stats=true`,
+      `${SPEECH_SERVICE_URL}/transcribe?language=${language}&quality=${quality}&compute_stats=true`,
       formData,
       {
         headers: { 'Content-Type': 'multipart/form-data' },

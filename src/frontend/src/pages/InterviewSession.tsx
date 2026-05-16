@@ -807,6 +807,7 @@ function InterviewSession() {
 
       recorder.start(1000)
       mediaRecorderRef.current = recorder
+      activeRecordingQuestionOrderRef.current = currentQuestionIndex + 1
 
       try {
         audioAnalyzerRef.current?.dispose?.()

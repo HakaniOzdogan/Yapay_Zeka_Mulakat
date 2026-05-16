@@ -98,6 +98,8 @@ function Report() {
   const [scoringError, setScoringError] = useState<string | null>(null)
   const [isTranscriptOpen, setIsTranscriptOpen] = useState(false)
   const [isProcessing, setIsProcessing] = useState(false)
+  const [retranscribeStatus, setRetranscribeStatus] = useState<'idle' | 'running' | 'done'>('idle')
+  const [retranscribeProgress, setRetranscribeProgress] = useState<{ done: number; total: number } | null>(null)
 
   useEffect(() => {
     void loadReport()
@@ -192,6 +194,57 @@ function Report() {
       setLoading(false)
     }
   }
+
+  // Second-pass: re-transcribe questions that have audio but no transcript, using accurate mode.
+  const retranscribeMissingQuestions = async (reportData: any) => {
+    if (!sessionId) return
+    const qs: ReportQuestion[] = Array.isArray(reportData?.questions) ? reportData.questions : []
+    const missing = qs.filter(q =>
+      q.audioUrl && resolveAudioUrl(q.audioUrl) &&
+      (!q.transcript || q.transcript.length === 0)
+    )
+    if (missing.length === 0) return
+
+    setRetranscribeStatus('running')
+    setRetranscribeProgress({ done: 0, total: missing.length })
+
+    for (let i = 0; i < missing.length; i++) {
+      const q = missing[i]
+      const url = resolveAudioUrl(q.audioUrl)!
+      try {
+        const audioRes = await fetch(url)
+        if (!audioRes.ok) continue
+        const audioBlob = await audioRes.blob()
+        const ext = url.endsWith('.mp4') ? 'mp4' : 'webm'
+        const formData = new FormData()
+        formData.append('file', audioBlob, `answer.${ext}`)
+        const result = await ApiService.transcribeAudio(formData, 'auto', 'accurate')
+        const segs = (result.segments ?? []).filter((s: any) => s.text?.trim())
+        if (segs.length > 0) {
+          const batch = segs.map((s: any) => ({
+            clientSegmentId: crypto.randomUUID(),
+            startMs: Math.max(0, Math.round(s.start_ms ?? 0)),
+            endMs: Math.max(0, Math.round(s.end_ms ?? 0)),
+            text: s.text.trim(),
+            confidence: s.confidence,
+            questionOrder: q.order
+          }))
+          await ApiService.postTranscriptBatch(sessionId, batch).catch(() => {})
+        }
+      } catch { /* skip this question, try next */ }
+      setRetranscribeProgress({ done: i + 1, total: missing.length })
+    }
+
+    setRetranscribeStatus('done')
+    setRetranscribeProgress(null)
+    void loadReport()
+  }
+
+  useEffect(() => {
+    if (report && !loading) {
+      void retranscribeMissingQuestions(report)
+    }
+  }, [report])
 
   const parseLlmError = (error: any): string => {
     const status = error?.response?.status
@@ -630,6 +683,18 @@ function Report() {
 
         <div className="feedback-section question-audio-section" data-testid="question-audio-section">
           <h2>🎙️ Interview Recordings &amp; Transcript</h2>
+
+          {retranscribeStatus === 'running' && (
+            <div className="retranscribe-banner retranscribe-banner--running">
+              Checking transcripts… re-transcribing missing questions with high-accuracy mode
+              {retranscribeProgress && ` (${retranscribeProgress.done} / ${retranscribeProgress.total})`}
+            </div>
+          )}
+          {retranscribeStatus === 'done' && (
+            <div className="retranscribe-banner retranscribe-banner--done">
+              High-accuracy transcription complete
+            </div>
+          )}
 
           {questions.length > 0 ? (
             <div className="question-audio-list">

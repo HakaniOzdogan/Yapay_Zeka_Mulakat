@@ -46,6 +46,8 @@ class BaseAsrBackend(ABC):
         use_vad: bool,
         start_ms: int,
         end_ms: int,
+        beam_size: int | None = None,
+        best_of: int | None = None,
     ) -> dict[str, Any]:
         raise NotImplementedError
 

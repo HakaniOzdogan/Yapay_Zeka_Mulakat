@@ -226,6 +226,7 @@ async def health_diagnostics() -> JSONResponse:
 async def transcribe_upload(
     file: UploadFile = File(...),
     language: str = Query("auto", alias="language"),
+    quality: str = Query("fast", alias="quality"),
 ) -> JSONResponse:
     await _ensure_model()
 
@@ -233,6 +234,11 @@ async def transcribe_upload(
     # Explicit codes (e.g. "tr", "en") are passed through as hints.
     raw = (language or "auto").strip().lower()
     lang: str | None = None if raw == "auto" else raw
+
+    # quality=accurate uses higher beam_size/best_of for better results at the cost of speed.
+    q = (quality or "fast").strip().lower()
+    req_beam_size = 5 if q == "accurate" else None
+    req_best_of   = 5 if q == "accurate" else None
 
     if not _model_loaded or not _asr.is_model_ready(cfg.model_name):
         raise HTTPException(503, "Konuşma modeli henüz hazır değil.")
@@ -254,11 +260,13 @@ async def transcribe_upload(
                 _asr.transcribe(
                     pcm,
                     model_name=cfg.model_name,
-                    language=lang,   # None → Whisper auto-detects
+                    language=lang,
                     task="transcribe",
                     use_vad=False,
                     start_ms=0,
                     end_ms=duration_ms,
+                    beam_size=req_beam_size,
+                    best_of=req_best_of,
                 ),
                 timeout=cfg.transcribe_timeout_sec,
             )

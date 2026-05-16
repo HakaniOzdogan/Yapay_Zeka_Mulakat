@@ -106,6 +106,8 @@ class FasterWhisperBackend(BaseAsrBackend):
         use_vad: bool,
         start_ms: int,
         end_ms: int,
+        beam_size: int | None = None,   # overrides env default when provided
+        best_of: int | None = None,
     ) -> dict[str, Any]:
         if not self.runtime_available:
             raise ModelUnavailableError("faster_whisper is not installed.")
@@ -134,13 +136,16 @@ class FasterWhisperBackend(BaseAsrBackend):
             wav_buffer = io.BytesIO(wav_bytes)
             loop = asyncio.get_running_loop()
 
+            _beam = beam_size if beam_size is not None else self._beam_size
+            _best = best_of  if best_of  is not None else self._best_of
+
             def _run_whisper() -> tuple[list[Any], Any]:
                 segments, info = model.transcribe(
                     wav_buffer,
                     language=language,
                     task=task,
-                    beam_size=self._beam_size,
-                    best_of=self._best_of,
+                    beam_size=_beam,
+                    best_of=_best,
                     vad_filter=False,
                     condition_on_previous_text=False,
                     no_speech_threshold=self._no_speech_threshold,
