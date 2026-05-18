@@ -573,16 +573,19 @@ app.Use(async (context, next) =>
     {
         await next();
     }
-    catch (Exception)
+    catch (Exception ex)
     {
+        Console.Error.WriteLine($"[GLOBAL-EX] {ex.GetType().Name}: {ex.Message}\n{ex.StackTrace}");
+        var isDev = true; // temp: always show detail for debugging
         var problem = new ProblemDetails
         {
             Title = "Internal Server Error",
             Status = StatusCodes.Status500InternalServerError,
-            Detail = "An unexpected error occurred.",
+            Detail = isDev ? $"{ex.GetType().Name}: {ex.Message}" : "An unexpected error occurred.",
             Type = "https://datatracker.ietf.org/doc/html/rfc7807"
         };
         problem.Extensions["traceId"] = context.TraceIdentifier;
+        if (isDev) problem.Extensions["stackTrace"] = ex.StackTrace;
 
         context.Response.StatusCode = StatusCodes.Status500InternalServerError;
         await context.Response.WriteAsJsonAsync(problem);

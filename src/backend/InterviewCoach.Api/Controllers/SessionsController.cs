@@ -172,19 +172,17 @@ public class SessionsController : ControllerBase
         if (!sessionExists)
             return this.NotFoundProblem($"Session '{sessionId}' was not found.");
 
-        await using var tx = await _db.Database.BeginTransactionAsync();
-
-        await _db.MetricEvents.Where(x => x.SessionId == sessionId).ExecuteDeleteAsync();
-        await _db.TranscriptSegments.Where(x => x.SessionId == sessionId).ExecuteDeleteAsync();
-        await TryDeleteLegacyRows(sessionId, "DerivedFeatures");
-        await TryDeleteLegacyRows(sessionId, "PatternHits");
-        await _db.ScoreCards.Where(x => x.SessionId == sessionId).ExecuteDeleteAsync();
-        await _db.LlmRuns.Where(x => x.SessionId == sessionId).ExecuteDeleteAsync();
-        await _db.FeedbackItems.Where(x => x.SessionId == sessionId).ExecuteDeleteAsync();
-        await _db.Questions.Where(x => x.SessionId == sessionId).ExecuteDeleteAsync();
-        await _db.Sessions.Where(x => x.Id == sessionId).ExecuteDeleteAsync();
-
-        await tx.CommitAsync();
+        try
+        {
+            await _db.Database.ExecuteSqlRawAsync(
+                @"DELETE FROM ""BatchCoachingJobItems"" WHERE ""SessionId"" = {0}", sessionId);
+            await _db.Sessions.Where(x => x.Id == sessionId).ExecuteDeleteAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[DELETE-DEBUG] Failed deleting session {SessionId}: {Type}: {Msg}", sessionId, ex.GetType().Name, ex.Message);
+            throw;
+        }
 
         try
         {
@@ -220,17 +218,8 @@ public class SessionsController : ControllerBase
         if (sessionIds.Count == 0)
             return Ok(new { deleted = 0 });
 
-        await using var tx = await _db.Database.BeginTransactionAsync();
-
-        await _db.MetricEvents.Where(x => sessionIds.Contains(x.SessionId)).ExecuteDeleteAsync();
-        await _db.TranscriptSegments.Where(x => sessionIds.Contains(x.SessionId)).ExecuteDeleteAsync();
-        await _db.ScoreCards.Where(x => sessionIds.Contains(x.SessionId)).ExecuteDeleteAsync();
-        await _db.LlmRuns.Where(x => sessionIds.Contains(x.SessionId)).ExecuteDeleteAsync();
-        await _db.FeedbackItems.Where(x => sessionIds.Contains(x.SessionId)).ExecuteDeleteAsync();
-        await _db.Questions.Where(x => sessionIds.Contains(x.SessionId)).ExecuteDeleteAsync();
+        await _db.BatchCoachingJobItems.Where(x => sessionIds.Contains(x.SessionId)).ExecuteDeleteAsync();
         await _db.Sessions.Where(x => sessionIds.Contains(x.Id)).ExecuteDeleteAsync();
-
-        await tx.CommitAsync();
 
         foreach (var sessionId in sessionIds)
         {
@@ -482,6 +471,11 @@ public class SessionsController : ControllerBase
 
     private async Task TryDeleteLegacyRows(Guid sessionId, string tableName)
     {
+        // Use a savepoint so that a missing-table error doesn't abort the outer transaction.
+        // PostgreSQL marks the whole transaction as aborted on any error; rolling back to
+        // a savepoint restores it to a usable state.
+        var savepointName = $"sp_{tableName.ToLowerInvariant()}";
+        await _db.Database.ExecuteSqlRawAsync($"SAVEPOINT {savepointName}");
         try
         {
             switch (tableName)
@@ -493,11 +487,14 @@ public class SessionsController : ControllerBase
                     await _db.Database.ExecuteSqlRawAsync(@"DELETE FROM ""PatternHits"" WHERE ""SessionId"" = {0}", sessionId);
                     break;
                 default:
+                    await _db.Database.ExecuteSqlRawAsync($"RELEASE SAVEPOINT {savepointName}");
                     return;
             }
+            await _db.Database.ExecuteSqlRawAsync($"RELEASE SAVEPOINT {savepointName}");
         }
         catch (PostgresException ex) when (ex.SqlState == "42P01")
         {
+            await _db.Database.ExecuteSqlRawAsync($"ROLLBACK TO SAVEPOINT {savepointName}");
             _logger.LogDebug("Table {tableName} not found while deleting session {sessionId}", tableName, sessionId);
         }
     }

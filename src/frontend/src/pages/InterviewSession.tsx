@@ -132,6 +132,9 @@ function InterviewSession() {
   const [isReconnecting, setIsReconnecting] = useState(false)
   const [isFinalizePending, setIsFinalizePending] = useState(false)
   const [hasRecordedCurrentQuestion, setHasRecordedCurrentQuestion] = useState(false)
+  const [isGeneratingAdaptive, setIsGeneratingAdaptive] = useState(false)
+  const [showAdaptiveReadyModal, setShowAdaptiveReadyModal] = useState(false)
+  const [adaptiveGenerationFailed, setAdaptiveGenerationFailed] = useState(false)
 
   const pendingUploadsRef = useRef(0)
   const autoRestartInProgressRef = useRef(false)
@@ -166,8 +169,7 @@ function InterviewSession() {
   const sessionTransportRef = useRef<SessionTransport | null>(null)
   const transportStatsIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const sessionStartAtMsRef = useRef<number | null>(null)
-  const adaptiveQuestionsRequestedRef = useRef(false)
-  const lastVisionEventSentAtRef = useRef<number>(0)
+const lastVisionEventSentAtRef = useRef<number>(0)
   const headPoseBufferRef = useRef(new FixedRollingBuffer<HeadPose>(VISION_BUFFER_SIZE))
   const poseBufferRef = useRef(new FixedRollingBuffer<PoseLandmarks>(VISION_BUFFER_SIZE))
   const smoothedVisionMetricsRef = useRef<Omit<VisionMetrics, 'calibrated'>>({
@@ -268,27 +270,6 @@ function InterviewSession() {
     return () => clearInterval(id)
   }, [sessionId])
 
-  // When Q4 starts recording, generate adaptive questions Q5–Q8 in background
-  useEffect(() => {
-    if (
-      currentQuestionIndex === 3 &&
-      isRecording &&
-      sessionId &&
-      !adaptiveQuestionsRequestedRef.current
-    ) {
-      adaptiveQuestionsRequestedRef.current = true
-      void (async () => {
-        try {
-          const newQs = await ApiService.generateAdaptiveQuestions(sessionId)
-          if (newQs.length > 0) {
-            setQuestions(prev => [...prev, ...newQs])
-          }
-        } catch {
-          // non-fatal: interview continues with existing 4 questions
-        }
-      })()
-    }
-  }, [currentQuestionIndex, isRecording, sessionId])
 
   useEffect(() => {
     return () => {
@@ -372,7 +353,6 @@ function InterviewSession() {
       screenChunksRef.current = []
 
       resetVisionPipeline()
-      sessionStartAtMsRef.current = performance.now()
 
       if (sessionId) {
         if (sessionTransportRef.current) {
@@ -405,12 +385,6 @@ function InterviewSession() {
 
       mediaStreamRef.current = stream
       setVideoStream(stream)
-
-      // True session start — set only once for session-relative MetricEvent timestamps
-      if (trueSessionStartMsRef.current === null) {
-        trueSessionStartMsRef.current = performance.now()
-      }
-      questionStartMsRef.current = Math.round(performance.now() - trueSessionStartMsRef.current)
 
       // Request screen share permission for every question.
       // We request audio:false from getDisplayMedia (system audio is optional/unreliable),
@@ -500,6 +474,13 @@ function InterviewSession() {
       } catch (audioError) {
         console.warn('Audio analyzer init failed:', audioError)
       }
+
+      // Set time references only after screen picker is resolved — timer starts from actual recording begin
+      sessionStartAtMsRef.current = performance.now()
+      if (trueSessionStartMsRef.current === null) {
+        trueSessionStartMsRef.current = performance.now()
+      }
+      questionStartMsRef.current = Math.round(performance.now() - trueSessionStartMsRef.current)
 
       setIsRecording(true)
       isRecordingRef.current = true
@@ -993,17 +974,73 @@ function InterviewSession() {
         .finally(decPending)
     }
 
+    // After Q4, block navigation and generate adaptive questions
+    if (currentQuestionIndex === 3 && sessionId) {
+      setIsGeneratingAdaptive(true)
+      setAdaptiveGenerationFailed(false)
+      try {
+        await transcriptionChainRef.current  // Q1-Q3 transcriptleri DB'ye yazılsın
+        const newQs = await ApiService.generateAdaptiveQuestions(sessionId)
+        if (newQs.length > 0) {
+          setQuestions(prev => [...prev, ...newQs])
+        } else {
+          setAdaptiveGenerationFailed(true)
+        }
+      } catch {
+        setAdaptiveGenerationFailed(true)
+      } finally {
+        setIsGeneratingAdaptive(false)
+        setShowAdaptiveReadyModal(true)
+      }
+      return
+    }
+
     proceedToNext()
   }
 
 
   const proceedToNext = () => {
-    if (currentQuestionIndex < questions.length - 1) {
+    const totalQuestions = Math.max(questions.length, 8)
+    if (currentQuestionIndex < totalQuestions - 1 && currentQuestionIndex < questions.length - 1) {
       setCurrentQuestionIndex(currentQuestionIndex + 1)
       audioChunksRef.current = []
       setHasRecordedCurrentQuestion(false)
     } else {
       finalize()
+    }
+  }
+
+  const handleAdaptiveReady = () => {
+    setShowAdaptiveReadyModal(false)
+    if (questions.length > 4) {
+      setCurrentQuestionIndex(4)
+      audioChunksRef.current = []
+      setHasRecordedCurrentQuestion(false)
+    } else {
+      proceedToNext()
+    }
+  }
+
+  const handleAdaptiveRetry = async () => {
+    if (!sessionId) return
+    setShowAdaptiveReadyModal(false)
+    setAdaptiveGenerationFailed(false)
+    setIsGeneratingAdaptive(true)
+    try {
+      const newQs = await ApiService.generateAdaptiveQuestions(sessionId)
+      if (newQs.length > 0) {
+        setQuestions(prev => {
+          const existing = new Set(prev.map((q: any) => q.id))
+          return [...prev, ...newQs.filter((q: any) => !existing.has(q.id))]
+        })
+      } else {
+        setAdaptiveGenerationFailed(true)
+      }
+    } catch {
+      setAdaptiveGenerationFailed(true)
+    } finally {
+      setIsGeneratingAdaptive(false)
+      setShowAdaptiveReadyModal(true)
     }
   }
 
@@ -1141,14 +1178,16 @@ function InterviewSession() {
           {/* Timer + navigation + stop */}
           <div className="session-header-meta">
             <span className="session-timer">{formattedElapsed}</span>
-            <button onClick={handleNext} disabled={uploading || isFinalizePending} className="btn btn-primary btn-sm">
+            <button onClick={handleNext} disabled={uploading || isFinalizePending || isGeneratingAdaptive} className="btn btn-primary btn-sm">
               {isFinalizePending
                 ? `Saving... (${pendingUploads})`
-                : uploading
-                  ? 'Processing...'
-                  : currentQuestionIndex < questions.length - 1
-                    ? 'Next Question →'
-                    : 'Finish Interview ✓'}
+                : isGeneratingAdaptive
+                  ? 'AI Soru Hazırlıyor...'
+                  : uploading
+                    ? 'Processing...'
+                    : currentQuestionIndex >= 7
+                      ? 'Finish Interview ✓'
+                      : 'Next Question →'}
             </button>
             <button
               type="button"
@@ -1323,6 +1362,58 @@ function InterviewSession() {
 
       </div>
 
+      {/* AI loading overlay */}
+      {isGeneratingAdaptive && (
+        <div className="confirm-modal-backdrop">
+          <div className="confirm-modal-card" style={{ textAlign: 'center' }}>
+            <div style={{ fontSize: '2rem', marginBottom: 16 }}>🤖</div>
+            <h3 style={{ marginBottom: 8 }}>AI Soru Hazırlıyor</h3>
+            <p style={{ marginBottom: 20, color: '#888' }}>
+              İlk 3 cevabınız analiz ediliyor, size özel sorular oluşturuluyor...
+            </p>
+            <div className="processing-dot" style={{ display: 'inline-block', width: 12, height: 12, borderRadius: '50%', background: '#6366f1', animation: 'pulse 1s infinite' }} />
+          </div>
+        </div>
+      )}
+
+      {/* Adaptive ready modal */}
+      {showAdaptiveReadyModal && (
+        <div className="confirm-modal-backdrop" role="dialog" aria-modal="true">
+          <div className="confirm-modal-card" style={{ textAlign: 'center' }}>
+            {adaptiveGenerationFailed ? (
+              <>
+                <div style={{ fontSize: '2rem', marginBottom: 16 }}>⚠️</div>
+                <h3 style={{ marginBottom: 8 }}>Soru Oluşturulamadı</h3>
+                <p style={{ marginBottom: 24, color: '#888' }}>
+                  AI sorular oluştururken bir sorun yaşandı. Tekrar denemek ister misin?
+                </p>
+                <div className="confirm-modal-actions" style={{ justifyContent: 'center', gap: 12 }}>
+                  <button type="button" className="btn btn-secondary" onClick={handleAdaptiveReady}>
+                    Devam Et →
+                  </button>
+                  <button type="button" className="btn btn-primary" onClick={handleAdaptiveRetry}>
+                    Tekrar Dene
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div style={{ fontSize: '2rem', marginBottom: 16 }}>✅</div>
+                <h3 style={{ marginBottom: 8 }}>Sorular Hazır!</h3>
+                <p style={{ marginBottom: 24, color: '#888' }}>
+                  AI cevaplarınızı analiz etti ve size özel 4 yeni soru oluşturdu.
+                  Devam etmeye hazır mısın?
+                </p>
+                <div className="confirm-modal-actions" style={{ justifyContent: 'center' }}>
+                  <button type="button" className="btn btn-primary" onClick={handleAdaptiveReady}>
+                    Hazırım →
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
     </div>
   )

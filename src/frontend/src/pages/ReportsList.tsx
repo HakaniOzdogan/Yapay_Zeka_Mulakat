@@ -27,6 +27,7 @@ function ReportsList() {
   const [sessions, setSessions] = useState<SessionItem[]>([])
   const [deleteTarget, setDeleteTarget] = useState<SessionItem | null>(null)
   const [deleteBusy, setDeleteBusy] = useState(false)
+  const [deleteModalError, setDeleteModalError] = useState('')
   const [deleteAllBusy, setDeleteAllBusy] = useState(false)
   const [message, setMessage] = useState('')
   const [errorMessage, setErrorMessage] = useState('')
@@ -82,6 +83,7 @@ function ReportsList() {
 
   const onAskDelete = (session: SessionItem) => {
     setDeleteTarget(session)
+    setDeleteModalError('')
     setMessage('')
     setErrorMessage('')
   }
@@ -100,19 +102,28 @@ function ReportsList() {
     }
 
     setDeleteBusy(true)
-    setErrorMessage('')
+    setDeleteModalError('')
 
+    let deleted = false
     try {
       await ApiService.deleteSession(deleteTarget.id)
-      setDeleteTarget(null)
-      setMessage('Deleted')
-      await load()
-      window.setTimeout(() => setMessage(''), 2500)
+      deleted = true
     } catch (error) {
       console.error('Failed to delete session:', error)
-      setErrorMessage('Delete failed. Please try again.')
+      setDeleteModalError('Silme başarısız oldu. Lütfen tekrar deneyin.')
     } finally {
       setDeleteBusy(false)
+    }
+
+    if (deleted) {
+      setDeleteTarget(null)
+      setMessage('Silindi')
+      try {
+        await load()
+      } catch {
+        // session was deleted; ignore reload error
+      }
+      window.setTimeout(() => setMessage(''), 2500)
     }
   }
 
@@ -217,14 +228,17 @@ function ReportsList() {
       {deleteTarget && (
         <div className="confirm-modal-backdrop" role="dialog" aria-modal="true" data-testid="delete-confirm-modal">
           <div className="confirm-modal-card">
-            <h3>Delete session?</h3>
-            <p>This will permanently remove the session and its data.</p>
+            <h3>Oturumu sil?</h3>
+            <p>Bu işlem oturumu ve tüm verilerini kalıcı olarak siler.</p>
+            {deleteModalError && (
+              <p style={{ color: '#f44336', fontSize: '0.9rem', margin: '8px 0 0' }}>{deleteModalError}</p>
+            )}
             <div className="confirm-modal-actions">
               <button type="button" className="btn btn-secondary" data-testid="delete-cancel-button" onClick={onCancelDelete} disabled={deleteBusy}>
-                Cancel
+                İptal
               </button>
-              <button type="button" className="btn btn-primary btn-danger-primary" data-testid="delete-confirm-button" onClick={onConfirmDelete} disabled={deleteBusy}>
-                {deleteBusy ? 'Deleting...' : 'Delete'}
+              <button type="button" className="btn btn-danger" data-testid="delete-confirm-button" onClick={onConfirmDelete} disabled={deleteBusy}>
+                {deleteBusy ? 'Siliniyor...' : 'Sil'}
               </button>
             </div>
           </div>

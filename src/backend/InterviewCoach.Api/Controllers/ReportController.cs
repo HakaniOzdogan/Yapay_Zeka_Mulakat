@@ -19,17 +19,20 @@ public class ReportController : ControllerBase
     private readonly IScoringService _scoringService;
     private readonly ApiTelemetry _telemetry;
     private readonly ILogger<ReportController> _logger;
+    private readonly IServiceScopeFactory _scopeFactory;
 
     public ReportController(
         ApplicationDbContext db,
         IScoringService scoringService,
         ApiTelemetry telemetry,
-        ILogger<ReportController> logger)
+        ILogger<ReportController> logger,
+        IServiceScopeFactory scopeFactory)
     {
         _db = db;
         _scoringService = scoringService;
         _telemetry = telemetry;
         _logger = logger;
+        _scopeFactory = scopeFactory;
     }
 
     /// <summary>
@@ -114,6 +117,26 @@ public class ReportController : ControllerBase
             }).ToList(),
             DerivedFeatureCount = 0
         };
+
+        // Fire-and-forget: start AI coaching generation in background.
+        // Frontend will poll GET /llm/coach until it appears.
+        var capturedSessionId = sessionId;
+        var capturedScopeFactory = _scopeFactory;
+        var capturedLogger = _logger;
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(500); // brief wait so DB commit is visible to new scope
+            using var scope = capturedScopeFactory.CreateScope();
+            var orchestrator = scope.ServiceProvider.GetRequiredService<ILlmCoachingOrchestrator>();
+            try
+            {
+                await orchestrator.ExecuteAsync(capturedSessionId, force: false);
+            }
+            catch (Exception ex)
+            {
+                capturedLogger.LogWarning(ex, "Background AI coaching generation failed for session {SessionId}", capturedSessionId);
+            }
+        });
 
         return Ok(response);
     }

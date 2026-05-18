@@ -79,6 +79,7 @@ function Report() {
   const [llmCoaching, setLlmCoaching] = useState<LlmCoachingResponse | null>(null)
   const [llmLoading, setLlmLoading] = useState(false)
   const [llmError, setLlmError] = useState<string | null>(null)
+  const [llmPolling, setLlmPolling] = useState(false)
   const [exportJsonLoading, setExportJsonLoading] = useState(false)
   const [exportMdLoading, setExportMdLoading] = useState(false)
   const [exportMessage, setExportMessage] = useState<string | null>(null)
@@ -104,6 +105,36 @@ function Report() {
   useEffect(() => {
     void loadReport()
   }, [sessionId])
+
+  // Auto-poll for AI coaching until it's ready
+  useEffect(() => {
+    if (!sessionId || llmCoaching) return
+    let cancelled = false
+    let attempts = 0
+    const MAX_ATTEMPTS = 60 // 5 min max
+
+    const poll = async () => {
+      if (cancelled || llmCoaching) return
+      try {
+        const result = await ApiService.getCachedLlmCoaching(sessionId)
+        if (result) {
+          if (!cancelled) { setLlmCoaching(result); setLlmPolling(false) }
+          return
+        }
+      } catch { /* ignore */ }
+
+      attempts++
+      if (!cancelled && attempts < MAX_ATTEMPTS) {
+        setTimeout(poll, 5000)
+      } else if (!cancelled) {
+        setLlmPolling(false)
+      }
+    }
+
+    setLlmPolling(true)
+    void poll()
+    return () => { cancelled = true }
+  }, [sessionId, llmCoaching])
 
   // Poll every 5 s while session is still processing
   useEffect(() => {
@@ -1052,16 +1083,25 @@ function Report() {
         <div className="ai-coach-section">
           <div className="ai-coach-header">
             <h2>AI Coach</h2>
-            <button
-              type="button"
-              className="btn btn-primary"
-              data-testid="generate-ai-coaching-button"
-              onClick={generateAiCoaching}
-              disabled={llmLoading}
-            >
-              {llmLoading ? 'Generating...' : 'Generate AI Coaching'}
-            </button>
+            {!llmPolling && !llmCoaching && (
+              <button
+                type="button"
+                className="btn btn-primary"
+                data-testid="generate-ai-coaching-button"
+                onClick={generateAiCoaching}
+                disabled={llmLoading}
+              >
+                {llmLoading ? 'Generating...' : 'Generate AI Coaching'}
+              </button>
+            )}
           </div>
+
+          {llmPolling && !llmCoaching && (
+            <div className="ai-coach-generating">
+              <span className="processing-dot" style={{ display: 'inline-block', width: 10, height: 10, borderRadius: '50%', background: '#6366f1', marginRight: 10 }} />
+              AI coaching hazırlanıyor... (bu işlem 1-2 dakika sürebilir)
+            </div>
+          )}
 
           {llmError && <div className="ai-coach-error">{llmError}</div>}
 

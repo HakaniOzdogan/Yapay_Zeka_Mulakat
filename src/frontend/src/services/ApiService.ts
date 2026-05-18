@@ -588,7 +588,7 @@ class ApiService {
     const response = await this.client.post(
       `/sessions/${sessionId}/questions/adaptive`,
       {},
-      { timeout: 60000 }
+      { timeout: 90000 }
     )
     return Array.isArray(response.data) ? response.data : []
   }
@@ -645,6 +645,15 @@ class ApiService {
     return {
       blob: response.data as Blob,
       filename: this.extractFilename(response.headers?.['content-disposition']) || `interview-report-${sessionId}.md`
+    }
+  }
+
+  async getCachedLlmCoaching(sessionId: string): Promise<LlmCoachingResponse | null> {
+    try {
+      const response = await this.client.get(`/sessions/${sessionId}/llm/coach`)
+      return response.status === 204 ? null : response.data as LlmCoachingResponse
+    } catch {
+      return null
     }
   }
 

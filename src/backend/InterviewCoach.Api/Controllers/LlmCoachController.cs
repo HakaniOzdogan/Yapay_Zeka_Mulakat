@@ -95,6 +95,41 @@ public class LlmCoachController : ControllerBase
         return Ok(result.Response);
     }
 
+    /// <summary>
+    /// Returns cached coaching result if it exists, without triggering generation.
+    /// Returns 204 if not yet generated.
+    /// </summary>
+    [HttpGet("coach")]
+    [ProducesResponseType(typeof(LlmCoachingResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<LlmCoachingResponse>> GetCachedCoach(Guid sessionId, CancellationToken cancellationToken)
+    {
+        var sessionExists = await _db.Sessions.AsNoTracking().AnyAsync(s => s.Id == sessionId, cancellationToken);
+        if (!sessionExists)
+            return this.NotFoundProblem($"Session '{sessionId}' was not found.");
+
+        var latestRun = await _db.LlmRuns
+            .AsNoTracking()
+            .Where(r => r.SessionId == sessionId && r.Kind == CoachKind)
+            .OrderByDescending(r => r.CreatedAt)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (latestRun == null || string.IsNullOrWhiteSpace(latestRun.OutputJson))
+            return NoContent();
+
+        try
+        {
+            var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+            var response = JsonSerializer.Deserialize<LlmCoachingResponse>(latestRun.OutputJson, options);
+            return response != null ? Ok(response) : NoContent();
+        }
+        catch
+        {
+            return NoContent();
+        }
+    }
+
     [HttpGet("coach/history")]
     [ProducesResponseType(typeof(List<LlmCoachHistoryItemDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]

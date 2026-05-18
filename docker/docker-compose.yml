@@ -27,10 +27,15 @@ services:
       ConnectionStrings__Default: Host=postgres;Port=5432;Database=${POSTGRES_DB:-interviewcoach};Username=${POSTGRES_USER:-coach};Password=${POSTGRES_PASSWORD:-coachpass}
       Cors__AllowedOrigin: ${FRONTEND_ORIGIN:-http://localhost:5173}
       Telemetry__Enabled: "false"
+      Llm__Provider: Ollama
       Llm__BaseUrl: http://ollama:11434
       Llm__ApiKey: ${LLM_API_KEY:-ollama}
       Llm__Model: ${LLM_MODEL:-qwen2.5:7b-instruct}
-      Llm__TimeoutSeconds: ${LLM_TIMEOUT_SECONDS:-60}
+      Llm__PrimaryModel: ${LLM_MODEL:-qwen2.5:7b-instruct}
+      Llm__LiveAnalysisModel: ${LLM_MODEL:-qwen2.5:7b-instruct}
+      Llm__TimeoutSeconds: ${LLM_TIMEOUT_SECONDS:-300}
+      Llm__Fallback__TryFallbackModelsOnFailure: "false"
+      LlmOptimization__ModelRouting__Enabled: "false"
     volumes:
       - audio_data:/app/audio
     depends_on:
