@@ -18,15 +18,18 @@ public class LlmCoachController : ControllerBase
 
     private readonly ApplicationDbContext _db;
     private readonly ILlmCoachingOrchestrator _orchestrator;
+    private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<LlmCoachController> _logger;
 
     public LlmCoachController(
         ApplicationDbContext db,
         ILlmCoachingOrchestrator orchestrator,
+        IServiceScopeFactory scopeFactory,
         ILogger<LlmCoachController> logger)
     {
         _db = db;
         _orchestrator = orchestrator;
+        _scopeFactory = scopeFactory;
         _logger = logger;
     }
 
@@ -46,53 +49,32 @@ public class LlmCoachController : ControllerBase
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status429TooManyRequests)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status502BadGateway)]
-    public async Task<ActionResult<LlmCoachingResponse>> Coach(Guid sessionId, [FromQuery] bool force = false, CancellationToken cancellationToken = default)
+    public IActionResult Coach(Guid sessionId, [FromQuery] bool force = false)
     {
-        using var scope = _logger.BeginScope(new Dictionary<string, object?>
+        var capturedId = sessionId;
+        var capturedForce = force;
+        var capturedScopeFactory = _scopeFactory;
+        var capturedLogger = _logger;
+
+        _ = Task.Run(async () =>
         {
-            ["sessionId"] = sessionId,
-            ["route"] = "/api/sessions/{sessionId}/llm/coach",
-            ["requestId"] = HttpContext.TraceIdentifier
+            await Task.Delay(200);
+            using var scope = capturedScopeFactory.CreateScope();
+            var orchestrator = scope.ServiceProvider.GetRequiredService<ILlmCoachingOrchestrator>();
+            try
+            {
+                var result = await orchestrator.ExecuteAsync(capturedId, capturedForce);
+                capturedLogger.LogInformation(
+                    "Background coaching completed for {sessionId}: success={success}, source={source}",
+                    capturedId, result.Success, result.Metadata.SourcePath);
+            }
+            catch (Exception ex)
+            {
+                capturedLogger.LogWarning(ex, "Background coaching failed for session {sessionId}", capturedId);
+            }
         });
 
-        var result = await _orchestrator.ExecuteAsync(sessionId, force, cancellationToken);
-
-        if (result.NotFound)
-        {
-            return this.NotFoundProblem($"Session '{sessionId}' was not found.");
-        }
-
-        if (!result.Success || result.Response == null)
-        {
-            var problem = new ProblemDetails
-            {
-                Title = "LLM orchestration failed",
-                Status = StatusCodes.Status502BadGateway,
-                Detail = result.ErrorMessage ?? "LLM orchestration failed.",
-                Type = "https://datatracker.ietf.org/doc/html/rfc7807"
-            };
-            problem.Extensions["traceId"] = HttpContext.TraceIdentifier;
-            problem.Extensions["sourcePath"] = result.Metadata.SourcePath;
-            problem.Extensions["providerUsed"] = result.Metadata.ProviderUsed;
-            problem.Extensions["attempts"] = result.Metadata.Attempts;
-            problem.Extensions["modelUsed"] = result.Metadata.ModelUsed;
-            problem.Extensions["reasoningEffort"] = result.Metadata.ReasoningEffort;
-            problem.Extensions["requestSourcePath"] = result.Metadata.RequestSourcePath;
-            problem.Extensions["validationFailures"] = result.Metadata.ValidationFailures;
-            problem.Extensions["guardrailFailures"] = result.Metadata.GuardrailFailures;
-            problem.Extensions["attemptedModels"] = result.Metadata.AttemptedModels;
-
-            return StatusCode(StatusCodes.Status502BadGateway, problem);
-        }
-
-        _logger.LogInformation(
-            "LLM coach summary: sourcePath={sourcePath}, modelUsed={modelUsed}, attempts={attempts}, fallbackUsed={fallbackUsed}",
-            result.Metadata.SourcePath,
-            result.Metadata.ModelUsed,
-            result.Metadata.Attempts,
-            result.Metadata.FallbackUsed);
-
-        return Ok(result.Response);
+        return Accepted(new { message = "Coaching generation started. Poll GET /llm/coach for result." });
     }
 
     /// <summary>

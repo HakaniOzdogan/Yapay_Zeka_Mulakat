@@ -572,7 +572,27 @@ public class BatchCoachingJobService : IBatchCoachingJobService
                 }
             }
 
-            var result = await orchestrator.ExecuteAsync(item.SessionId, force, cancellationToken);
+            LlmCoachingOrchestrationResult result;
+            try
+            {
+                result = await orchestrator.ExecuteAsync(item.SessionId, force, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                item.Status = BatchCoachingJobItemStatus.Failed;
+                item.Error = ex.Message;
+                item.CompletedAtUtc = DateTime.UtcNow;
+                await scopedDb.SaveChangesAsync(CancellationToken.None);
+                sw.Stop();
+                return new BatchCoachingItemOutcome
+                {
+                    Status = BatchCoachingJobItemStatus.Failed,
+                    Error = ex.Message,
+                    Processed = true,
+                    DurationMs = sw.Elapsed.TotalMilliseconds
+                };
+            }
+
             if (result.NotFound)
             {
                 finalOutcome = new BatchCoachingItemOutcome
@@ -733,6 +753,7 @@ public sealed class BatchCoachingWorker : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        var loopCount = 0;
         while (!stoppingToken.IsCancellationRequested)
         {
             try
@@ -745,6 +766,13 @@ public sealed class BatchCoachingWorker : BackgroundService
                     await service.ResetStaleRunningJobsAsync(stoppingToken);
                     _startupResetDone = true;
                 }
+
+                // Every 12 loops (~1 min at 5s interval) reset any stale Running items
+                if (loopCount % 12 == 0)
+                {
+                    await ResetStaleRunningItemsAsync(stoppingToken);
+                }
+                loopCount++;
 
                 await service.ProcessNextQueuedJobAsync(stoppingToken);
             }
@@ -759,6 +787,33 @@ public sealed class BatchCoachingWorker : BackgroundService
 
             var delaySeconds = Math.Clamp(_optionsMonitor.CurrentValue.PollIntervalSeconds, 1, 300);
             await Task.Delay(TimeSpan.FromSeconds(delaySeconds), stoppingToken);
+        }
+    }
+
+    private async Task ResetStaleRunningItemsAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            var options = _optionsMonitor.CurrentValue;
+            var cutoff = DateTime.UtcNow.AddMinutes(-Math.Abs(options.StaleRunningJobMinutes));
+            using var scope = _scopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<InterviewCoach.Infrastructure.ApplicationDbContext>();
+            var staleItems = await db.BatchCoachingJobItems
+                .Where(i => i.Status == BatchCoachingJobItemStatus.Running && i.StartedAtUtc < cutoff)
+                .ToListAsync(cancellationToken);
+            if (staleItems.Count == 0) return;
+            foreach (var item in staleItems)
+            {
+                item.Status = BatchCoachingJobItemStatus.Failed;
+                item.Error = "Stale item reset by periodic check.";
+                item.CompletedAtUtc = DateTime.UtcNow;
+            }
+            await db.SaveChangesAsync(cancellationToken);
+            _logger.LogWarning("Reset {count} stale running batch coaching items to failed.", staleItems.Count);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to reset stale running batch coaching items.");
         }
     }
 }

@@ -649,12 +649,8 @@ class ApiService {
   }
 
   async getCachedLlmCoaching(sessionId: string): Promise<LlmCoachingResponse | null> {
-    try {
-      const response = await this.client.get(`/sessions/${sessionId}/llm/coach`)
-      return response.status === 204 ? null : response.data as LlmCoachingResponse
-    } catch {
-      return null
-    }
+    const response = await this.client.get(`/sessions/${sessionId}/llm/coach`)
+    return response.status === 204 ? null : response.data as LlmCoachingResponse
   }
 
   async getLlmCoaching(sessionId: string): Promise<LlmCoachingResponse> {

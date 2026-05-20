@@ -80,6 +80,9 @@ function Report() {
   const [llmLoading, setLlmLoading] = useState(false)
   const [llmError, setLlmError] = useState<string | null>(null)
   const [llmPolling, setLlmPolling] = useState(false)
+  const [llmPollingError, setLlmPollingError] = useState<string | null>(null)
+  const [pollingStartTime, setPollingStartTime] = useState<number | null>(null)
+  const [pollingElapsed, setPollingElapsed] = useState(0)
   const [exportJsonLoading, setExportJsonLoading] = useState(false)
   const [exportMdLoading, setExportMdLoading] = useState(false)
   const [exportMessage, setExportMessage] = useState<string | null>(null)
@@ -106,35 +109,59 @@ function Report() {
     void loadReport()
   }, [sessionId])
 
-  // Auto-poll for AI coaching until it's ready
+  // Auto-poll for AI coaching — runs until coaching arrives or a real error occurs
   useEffect(() => {
     if (!sessionId || llmCoaching) return
     let cancelled = false
-    let attempts = 0
-    const MAX_ATTEMPTS = 60 // 5 min max
+    let consecutiveErrors = 0
 
     const poll = async () => {
       if (cancelled || llmCoaching) return
       try {
         const result = await ApiService.getCachedLlmCoaching(sessionId)
+        consecutiveErrors = 0
+        if (!cancelled) setLlmPollingError(null)
         if (result) {
-          if (!cancelled) { setLlmCoaching(result); setLlmPolling(false) }
+          if (!cancelled) {
+            localStorage.removeItem(`coaching_poll_start_${sessionId}`)
+            setLlmCoaching(result)
+            setLlmPolling(false)
+          }
           return
         }
-      } catch { /* ignore */ }
-
-      attempts++
-      if (!cancelled && attempts < MAX_ATTEMPTS) {
-        setTimeout(poll, 5000)
-      } else if (!cancelled) {
-        setLlmPolling(false)
+      } catch (err: unknown) {
+        consecutiveErrors++
+        if (consecutiveErrors >= 3 && !cancelled) {
+          const axiosErr = err as { response?: { data?: { message?: string } }; message?: string }
+          setLlmPollingError(
+            axiosErr?.response?.data?.message ?? axiosErr?.message ?? 'Bağlantı hatası'
+          )
+        }
       }
+      if (!cancelled) setTimeout(poll, 5000)
     }
 
+    const storageKey = `coaching_poll_start_${sessionId}`
+    const stored = localStorage.getItem(storageKey)
+    const startTime = stored ? parseInt(stored, 10) : Date.now()
+    if (!stored) localStorage.setItem(storageKey, String(startTime))
+
     setLlmPolling(true)
+    setPollingStartTime(startTime)
+    setPollingElapsed(Math.floor((Date.now() - startTime) / 1000))
+    setLlmPollingError(null)
     void poll()
     return () => { cancelled = true }
   }, [sessionId, llmCoaching])
+
+  // Elapsed timer — ticks every second while polling
+  useEffect(() => {
+    if (!llmPolling || !pollingStartTime) return
+    const id = setInterval(() => {
+      setPollingElapsed(Math.floor((Date.now() - pollingStartTime) / 1000))
+    }, 1000)
+    return () => clearInterval(id)
+  }, [llmPolling, pollingStartTime])
 
   // Poll every 5 s while session is still processing
   useEffect(() => {
@@ -1096,12 +1123,48 @@ function Report() {
             )}
           </div>
 
-          {llmPolling && !llmCoaching && (
-            <div className="ai-coach-generating">
-              <span className="processing-dot" style={{ display: 'inline-block', width: 10, height: 10, borderRadius: '50%', background: '#6366f1', marginRight: 10 }} />
-              AI coaching hazırlanıyor... (bu işlem 1-2 dakika sürebilir)
-            </div>
-          )}
+          {llmPolling && !llmCoaching && (() => {
+            const EXPECTED_SECONDS = 480 // ~8 dk ortalama
+            const progress = Math.min(pollingElapsed / EXPECTED_SECONDS, 0.95)
+            const remaining = Math.max(EXPECTED_SECONDS - pollingElapsed, 0)
+            const remainingText = remaining >= 60
+              ? `~${Math.ceil(remaining / 60)} dakika`
+              : `~${remaining} saniye`
+            return (
+              <div className="ai-coach-generating">
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                  <span style={{ fontWeight: 500, color: '#6366f1' }}>
+                    <span className="processing-dot" style={{ marginRight: 8 }} />
+                    AI Coach hazırlanıyor...
+                  </span>
+                  <span style={{ fontSize: '0.85rem', color: '#64748b' }}>
+                    {pollingElapsed < EXPECTED_SECONDS ? `Tahmini bekleme: ${remainingText}` : 'Biraz daha bekleyin...'}
+                  </span>
+                </div>
+                <div style={{ width: '100%', height: 8, background: '#e2e8f0', borderRadius: 4, overflow: 'hidden' }}>
+                  <div style={{
+                    height: '100%',
+                    width: `${Math.round(progress * 100)}%`,
+                    background: 'linear-gradient(90deg, #6366f1, #8b5cf6)',
+                    borderRadius: 4,
+                    transition: 'width 1s linear',
+                  }} />
+                </div>
+                <div style={{ marginTop: 6, fontSize: '0.78rem', color: '#94a3b8' }}>
+                  Ollama modeliniz mülakat verilerini analiz ediyor — GPU'nuzda yerel olarak çalışıyor
+                </div>
+                {llmPollingError && (
+                  <div style={{
+                    marginTop: 10, padding: '8px 12px',
+                    background: '#fef2f2', border: '1px solid #fca5a5',
+                    borderRadius: 6, color: '#dc2626', fontSize: '0.82rem'
+                  }}>
+                    ⚠️ {llmPollingError} — yeniden deneniyor...
+                  </div>
+                )}
+              </div>
+            )
+          })()}
 
           {llmError && <div className="ai-coach-error">{llmError}</div>}
 

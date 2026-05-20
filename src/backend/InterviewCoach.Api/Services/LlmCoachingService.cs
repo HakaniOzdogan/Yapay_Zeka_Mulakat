@@ -11,6 +11,7 @@ public interface ILlmCoachingService
     bool TryParseAndValidate(string json, out LlmCoachingResponse? response, out List<string> errors);
 }
 
+
 public class LlmCoachingService : ILlmCoachingService
 {
     private static readonly JsonElement CoachingSchema = JsonSerializer.SerializeToElement(new
@@ -37,7 +38,7 @@ public class LlmCoachingService : ILlmCoachingService
             feedback = new
             {
                 type = "array",
-                minItems = 5,
+                minItems = 2,
                 maxItems = 10,
                 items = new
                 {
@@ -45,7 +46,7 @@ public class LlmCoachingService : ILlmCoachingService
                     additionalProperties = false,
                     properties = new
                     {
-                        category = new { type = "string" },
+                        category = new { type = "string", @enum = new[] { "vision", "audio", "content", "structure" } },
                         severity = new { type = "integer", minimum = 1, maximum = 5 },
                         title = new { type = "string" },
                         evidence = new { type = "string" },
@@ -87,16 +88,18 @@ public class LlmCoachingService : ILlmCoachingService
     });
 
     private readonly ILlmClient _llmClient;
+    private readonly ILogger<LlmCoachingService> _logger;
 
     private static readonly JsonSerializerOptions StrictOptions = new()
     {
-        PropertyNameCaseInsensitive = false,
-        UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow
+        PropertyNameCaseInsensitive = true,
+        UnmappedMemberHandling = JsonUnmappedMemberHandling.Skip
     };
 
-    public LlmCoachingService(ILlmClient llmClient)
+    public LlmCoachingService(ILlmClient llmClient, ILogger<LlmCoachingService> logger)
     {
         _llmClient = llmClient;
+        _logger = logger;
     }
 
     public async Task<LlmCoachingResult> GenerateAsync(EvidenceSummaryDto evidenceSummary, CancellationToken cancellationToken = default)
@@ -121,9 +124,13 @@ public class LlmCoachingService : ILlmCoachingService
 
         if (TryParseAndValidate(raw.Content, out var output, out var errors))
         {
+            output = NormalizeCategories(output!);
             var minified = JsonSerializer.Serialize(output);
             return LlmCoachingResult.Success(output!, minified, raw.Provider, raw.Model, raw.ReasoningEffort, raw.SourcePath);
         }
+
+        _logger.LogWarning("LLM coaching JSON validation failed (attempt 1). Errors: {errors}. Raw (first 800 chars): {raw}",
+            string.Join("; ", errors), raw.Content?.Length > 800 ? raw.Content[..800] : raw.Content);
 
         var fixPrompt = BuildFixPrompt(raw.Content, errors);
         var retriedRaw = await _llmClient.GenerateJsonAsync(new LlmJsonRequest
@@ -138,9 +145,13 @@ public class LlmCoachingService : ILlmCoachingService
 
         if (TryParseAndValidate(retriedRaw.Content, out output, out errors))
         {
+            output = NormalizeCategories(output!);
             var minified = JsonSerializer.Serialize(output);
             return LlmCoachingResult.Success(output!, minified, retriedRaw.Provider, retriedRaw.Model, retriedRaw.ReasoningEffort, retriedRaw.SourcePath);
         }
+
+        _logger.LogWarning("LLM coaching JSON validation failed (attempt 2/final). Errors: {errors}. Raw (first 800 chars): {raw}",
+            string.Join("; ", errors), retriedRaw.Content?.Length > 800 ? retriedRaw.Content[..800] : retriedRaw.Content);
 
         return LlmCoachingResult.Failure(errors, retriedRaw.Provider, retriedRaw.Model, retriedRaw.ReasoningEffort, retriedRaw.SourcePath);
     }
@@ -213,16 +224,13 @@ public class LlmCoachingService : ILlmCoachingService
         ValidateRange(response.Rubric.Confidence, 0, 5, "rubric.confidence", errors);
         ValidateRange(response.Overall, 0, 100, "overall", errors);
 
-        if (response.Feedback.Count < 5 || response.Feedback.Count > 10)
-            errors.Add("feedback count must be between 5 and 10.");
+        if (response.Feedback.Count < 2 || response.Feedback.Count > 10)
+            errors.Add("feedback count must be between 2 and 10.");
 
         for (var i = 0; i < response.Feedback.Count; i++)
         {
             var f = response.Feedback[i];
             var prefix = $"feedback[{i}]";
-
-            if (f.Category is not ("vision" or "audio" or "content" or "structure"))
-                errors.Add($"{prefix}.category must be one of: vision|audio|content|structure.");
 
             ValidateRange(f.Severity, 1, 5, $"{prefix}.severity", errors);
 
@@ -237,6 +245,21 @@ public class LlmCoachingService : ILlmCoachingService
         }
     }
 
+    private static LlmCoachingResponse NormalizeCategories(LlmCoachingResponse response)
+    {
+        var normalized = response.Feedback.Select(f => f with { Category = MapCategory(f.Category) }).ToList();
+        return response with { Feedback = normalized };
+    }
+
+    private static string MapCategory(string? raw) => raw?.ToLowerInvariant() switch
+    {
+        "vision" or "eye_contact" or "gaze" or "posture" or "fidget" or "body" or "body_language" => "vision",
+        "audio" or "speaking_rate" or "filler_words" or "filler" or "speech" or "volume" or "tone" or "pace" => "audio",
+        "content" or "technical" or "technical_correctness" or "depth" or "accuracy" or "knowledge" => "content",
+        "structure" or "clarity" or "confidence" or "organization" or "answer_structure" => "structure",
+        _ => "content"
+    };
+
     private static void ValidateRange(int value, int min, int max, string field, List<string> errors)
     {
         if (value < min || value > max)
@@ -248,18 +271,27 @@ public class LlmCoachingService : ILlmCoachingService
         var lang = string.IsNullOrWhiteSpace(language) || language == "unknown" ? "en" : language;
 
         return $"""
-You are a strict interview coaching engine.
-Output MUST be valid JSON only. No markdown. No prose.
-Return exactly these top-level keys and no extras: rubric, overall, feedback, drills.
+You are a strict interview coaching engine. Output MUST be valid JSON only. No markdown, no prose, no explanation.
+Return exactly these top-level keys: rubric, overall, feedback, drills.
 Use language: {lang}.
+
 Numeric constraints:
-- rubric.* integers between 0 and 5
-- overall integer between 0 and 100
-- feedback[].severity integer 1..5
-- feedback[].time_range_ms array with exactly 2 integers [startMs,endMs], startMs<=endMs
-Categories allowed only: vision, audio, content, structure.
-Transcript may be absent in this build. When transcript slices are missing, rely on pattern windows, top issues, and worst-window evidence instead.
-If evidence is insufficient, keep schema and say evidence is insufficient in evidence field.
+- rubric fields: integers 0-5
+- overall: integer 0-100
+- feedback[].severity: integer 1-5
+- feedback[].time_range_ms: exactly [startMs, endMs] where startMs <= endMs
+
+CATEGORY must be EXACTLY one of these strings (no other values allowed):
+- "vision"   → eye contact, gaze, posture, fidgeting, body language
+- "audio"    → speaking rate, filler words, volume, tone, pacing
+- "content"  → technical correctness, depth, accuracy, knowledge
+- "structure" → answer organization, clarity, confidence
+
+feedback must have between 2 and 10 items.
+If evidence is insufficient, keep the schema and write "Insufficient evidence" in the evidence field.
+
+Example of ONE valid feedback item structure (use this exact format):
+category: "audio", severity: 2, title: "Filler words", evidence: "...", time_range_ms: [0, 300000], suggestion: "...", example_phrase: "..."
 """;
     }
 
